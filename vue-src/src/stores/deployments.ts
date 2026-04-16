@@ -3,12 +3,15 @@ import { ref, computed } from 'vue'
 import { storage } from '@neutralinojs/lib'
 import { v4 as uuidv4 } from 'uuid'
 import type { Deployment } from '@/types/deployment'
+import { encryptPassword, decryptPassword } from '@/utils/crypto'
 
 const STORAGE_KEY = 'deployments'
+const SECRET_KEY = '_app_secret'
 
 export const useDeploymentsStore = defineStore('deployments', () => {
   // ── State ────────────────────────────────────────────────
   const deployments = ref<Deployment[]>([])
+  const machineSecret = ref<string | null>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
@@ -28,6 +31,17 @@ export const useDeploymentsStore = defineStore('deployments', () => {
     isLoading.value = true
     error.value = null
     try {
+      // Load machine secret
+      try {
+        const secret = await storage.getData(SECRET_KEY)
+        machineSecret.value = secret
+      } catch {
+        const newSecret = uuidv4()
+        await storage.setData(SECRET_KEY, newSecret)
+        machineSecret.value = newSecret
+      }
+
+      // Load deployments
       const raw = await storage.getData(STORAGE_KEY)
       deployments.value = JSON.parse(raw) as Deployment[]
     } catch {
@@ -45,8 +59,15 @@ export const useDeploymentsStore = defineStore('deployments', () => {
   // ── CRUD ─────────────────────────────────────────────────
   async function create(data: Omit<Deployment, 'id' | 'createdAt' | 'updatedAt'>): Promise<Deployment> {
     const now = new Date().toISOString()
+    
+    // Encrypt password if present
+    const processedData = { ...data }
+    if (processedData.authMethod === 'password' && processedData.password && machineSecret.value) {
+      processedData.password = await encryptPassword(processedData.password, machineSecret.value)
+    }
+
     const deployment: Deployment = {
-      ...data,
+      ...processedData,
       id: uuidv4(),
       createdAt: now,
       updatedAt: now,
@@ -59,10 +80,20 @@ export const useDeploymentsStore = defineStore('deployments', () => {
   async function update(id: string, data: Partial<Omit<Deployment, 'id' | 'createdAt'>>): Promise<void> {
     const index = deployments.value.findIndex(d => d.id === id)
     if (index === -1) throw new Error(`Deployment ${id} not found`)
+    
     const existing = deployments.value[index] as Deployment
+    
+    // Encrypt password if present and changed
+    const processedData = { ...data }
+    if (processedData.authMethod === 'password' && processedData.password && machineSecret.value) {
+      processedData.password = await encryptPassword(processedData.password, machineSecret.value)
+    } else if (processedData.authMethod === 'key') {
+      processedData.password = undefined // clear password if switching to key
+    }
+
     deployments.value[index] = {
       ...existing,
-      ...data,
+      ...processedData,
       id: existing.id,
       createdAt: existing.createdAt,
       updatedAt: new Date().toISOString(),
@@ -78,11 +109,30 @@ export const useDeploymentsStore = defineStore('deployments', () => {
   async function clone(id: string): Promise<Deployment> {
     const source = getById(id)
     if (!source) throw new Error(`Deployment ${id} not found`)
+    
+    // We don't clone the encrypted password because it might be tricky or 
+    // we want forced re-entry for security when cloning.
     return create({
       ...source,
       name: `${source.name} (Copy)`,
-      password: undefined, // do not clone sensitive fields
+      password: undefined, 
     })
+  }
+
+  /**
+   * Returns a deployment with its password decrypted.
+   * Useful for SSH actions.
+   */
+  async function getPlaintextDeployment(id: string): Promise<Deployment | undefined> {
+    const d = getById(id)
+    if (!d) return undefined
+    
+    if (d.authMethod === 'password' && d.password && machineSecret.value) {
+      const plaintext = await decryptPassword(d.password, machineSecret.value)
+      return { ...d, password: plaintext || undefined }
+    }
+    
+    return { ...d }
   }
 
   // ── Bulk operations (import/export) ──────────────────────
@@ -97,6 +147,7 @@ export const useDeploymentsStore = defineStore('deployments', () => {
     isLoading,
     error,
     getById,
+    getPlaintextDeployment,
     load,
     create,
     update,

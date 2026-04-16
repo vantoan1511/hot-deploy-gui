@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { z } from 'zod'
 import { useOpenDialog } from '@/composables/useFileDialog'
+import { execSSH } from '@/composables/useSSH'
+import { useSettingsStore } from '@/stores/settings'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import type { Deployment, AuthMethod } from '@/types/deployment'
@@ -16,6 +18,8 @@ const emit = defineEmits<{
   submit: [data: Omit<Deployment, 'id' | 'createdAt' | 'updatedAt'>]
   cancel: []
 }>()
+
+const settingsStore = useSettingsStore()
 
 // ── Form State ──────────────────────────────────────────────
 
@@ -37,6 +41,8 @@ const form = ref({
 })
 
 const errors = ref<Record<string, string>>({})
+const testStatus = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
+const testMessage = ref('')
 
 // ── Validation Schema ────────────────────────────────────────
 
@@ -107,6 +113,52 @@ async function pickJar() {
     filters: [{ name: 'JAR Files', extensions: ['jar'] }]
   })
   if (path) form.value.localJarPath = path
+}
+
+async function handleTestConnection() {
+  errors.value = {}
+  testStatus.value = 'loading'
+  testMessage.value = ''
+
+  const result = schema.safeParse({
+    ...form.value,
+    sshPort: Number(form.value.sshPort)
+  })
+
+  if (!result.success) {
+    result.error.issues.forEach((issue) => {
+      const path = issue.path[0]
+      if (typeof path === 'string') {
+        errors.value[path] = issue.message
+      }
+    })
+    testStatus.value = 'error'
+    testMessage.value = 'Please fix validation errors first.'
+    return
+  }
+
+  // Construct a temporary deployment object for testing
+  const tempDeployment: Deployment = {
+    id: 'test',
+    ...result.data,
+    tags: [],
+    createdAt: '',
+    updatedAt: '',
+  }
+
+  try {
+    const res = await execSSH(tempDeployment, 'exit')
+    if (res.exitCode === 0) {
+      testStatus.value = 'success'
+      testMessage.value = 'Connection successful!'
+    } else {
+      testStatus.value = 'error'
+      testMessage.value = res.output || 'Connection failed.'
+    }
+  } catch (err) {
+    testStatus.value = 'error'
+    testMessage.value = String(err)
+  }
 }
 
 function handleSubmit() {
@@ -219,6 +271,12 @@ function handleSubmit() {
                 Password
               </button>
             </div>
+            <p v-if="form.authMethod === 'password' && !settingsStore.sshpassAvailable && !settingsStore.plinkAvailable" class="warning-msg">
+              ⚠️ Password auth requires sshpass (Linux) or plink (PuTTY/Windows).
+            </p>
+            <p v-else-if="form.authMethod === 'password' && !settingsStore.sshpassAvailable && settingsStore.plinkAvailable" class="info-msg">
+              ℹ️ Using plink (PuTTY) for password authentication.
+            </p>
           </div>
 
           <div v-if="form.authMethod === 'key'" class="field-with-action">
@@ -303,6 +361,19 @@ function handleSubmit() {
     </div>
 
     <div class="form-actions">
+      <div v-if="testStatus !== 'idle'" :class="['test-result', testStatus]" :title="testMessage">
+        {{ testMessage }}
+      </div>
+      <div class="flex-spacer"></div>
+      <BaseButton
+        type="button"
+        variant="secondary"
+        size="sm"
+        :loading="testStatus === 'loading'"
+        @click="handleTestConnection"
+      >
+        Test Connection
+      </BaseButton>
       <BaseButton variant="ghost" @click="emit('cancel')">Cancel</BaseButton>
       <BaseButton type="submit" variant="primary" :loading="props.loading">
         {{ props.submitLabel || 'Save Configuration' }}
@@ -374,10 +445,34 @@ function handleSubmit() {
 
 .form-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: 12px;
   padding-top: 24px;
   border-top: 1px solid var(--color-surface-3);
+}
+
+.flex-spacer {
+  flex: 1;
+}
+
+.test-result {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.test-result.success {
+  color: var(--color-success);
+  background-color: color-mix(in srgb, var(--color-success) 10%, transparent);
+}
+
+.test-result.error {
+  color: var(--color-error);
+  background-color: color-mix(in srgb, var(--color-error) 10%, transparent);
 }
 
 /* ── Custom Inputs ────────────────────────────────────────── */
@@ -440,5 +535,17 @@ function handleSubmit() {
 
 .toggle-btn:hover:not(.active) {
   color: var(--color-text-primary);
+}
+
+.warning-msg {
+  font-size: 11px;
+  color: var(--color-warning);
+  margin: 4px 0 0;
+}
+
+.info-msg {
+  font-size: 11px;
+  color: var(--color-info);
+  margin: 4px 0 0;
 }
 </style>

@@ -93,7 +93,7 @@ export function useDeployRunner() {
    * Run all 7 steps in sequence. Halts on error.
    */
   async function deployAll(deploymentId: string): Promise<void> {
-    const deployment = deploymentsStore.getById(deploymentId)
+    const deployment = await deploymentsStore.getPlaintextDeployment(deploymentId)
     if (!deployment) throw new Error(`Deployment ${deploymentId} not found`)
 
     isDeploying.value = true
@@ -113,7 +113,7 @@ export function useDeployRunner() {
    * Run a single step manually (step-by-step mode).
    */
   async function runSingleStep(deploymentId: string, stepIndex: number): Promise<void> {
-    const deployment = deploymentsStore.getById(deploymentId)
+    const deployment = await deploymentsStore.getPlaintextDeployment(deploymentId)
     if (!deployment) throw new Error(`Deployment ${deploymentId} not found`)
     await runStep(deployment, stepIndex)
   }
