@@ -24,6 +24,28 @@ export const useSessionStore = defineStore('session', () => {
   const currentStepIndex = computed(() => session.value?.currentStepIndex ?? -1)
   const steps = computed(() => session.value?.steps ?? [])
 
+  const sessionStatus = computed(() => {
+    if (!session.value) return 'idle'
+    if (session.value.isRunning) return 'running'
+    const anyError = session.value.steps.some(s => s.status === 'error')
+    const allDone = session.value.steps.every(s => s.status !== 'idle' && s.status !== 'running')
+    if (anyError) return 'failed'
+    if (allDone) return 'completed'
+    return 'idle'
+  })
+
+  const fullLog = computed(() => {
+    if (!session.value) return ''
+    return session.value.steps
+      .map(s => {
+        if (s.status === 'idle') return ''
+        const header = `\n--- STEP ${s.stepIndex + 1}: ${s.output ? '' : '(Pending output...)'}\n`
+        return header + (s.output || '')
+      })
+      .filter(l => l.length > 0)
+      .join('\n')
+  })
+
   function stepResult(index: number): StepResult | undefined {
     return session.value?.steps[index]
   }
@@ -90,6 +112,8 @@ export const useSessionStore = defineStore('session', () => {
     isRunning,
     currentStepIndex,
     steps,
+    sessionStatus,
+    fullLog,
     stepResult,
     canStartStep,
     startSession,

@@ -1,108 +1,219 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDeploymentsStore } from '@/stores/deployments'
+import { useDeployRunner } from '@/composables/useDeployRunner'
+import { useSessionStore } from '@/stores/session'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import StepList from '@/components/deploy/StepList.vue'
+import TerminalPanel from '@/components/deploy/TerminalPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
-const store = useDeploymentsStore()
+const deploymentsStore = useDeploymentsStore()
+const sessionStore = useSessionStore()
+const runner = useDeployRunner()
 
 const id = route.params.id as string
-const deployment = computed(() => store.getById(id))
+const deployment = computed(() => deploymentsStore.getById(id))
+
+onMounted(() => {
+  if (id) {
+    sessionStore.startSession(id)
+  }
+})
+
+async function handleDeployAll() {
+  if (!id) return
+  await runner.deployAll(id)
+}
+
+async function handleRunStep(stepIndex: number) {
+  if (!id) return
+  await runner.runSingleStep(id, stepIndex)
+}
 </script>
 
 <template>
-  <div class="view-page">
+  <div class="deploy-cockpit">
     <div v-if="!deployment" class="not-found">
-      <p>Deployment not found.</p>
-      <BaseButton @click="router.push('/')">← Back</BaseButton>
+      <p>Deployment configuration not found.</p>
+      <BaseButton @click="router.push('/')">← Back to Dashboard</BaseButton>
     </div>
 
     <template v-else>
-      <!-- Header -->
-      <div class="deploy-header">
-        <button class="back-btn" @click="router.push(`/deployments/${id}`)">← Back</button>
-        <h1 class="deploy-title">Deploy: {{ deployment.name }}</h1>
+      <!-- Page Header -->
+      <header class="page-header">
+        <div class="header-left">
+          <button class="back-link" @click="router.push(`/deployments/${id}`)">
+            ← Details
+          </button>
+          <h1 class="page-title">Deployment Engine</h1>
+          <p class="page-sub">{{ deployment.name }} — {{ deployment.username }}@{{ deployment.host }}</p>
+        </div>
+        
+        <div class="header-actions">
+          <BaseButton 
+            variant="primary" 
+            size="lg" 
+            :loading="runner.isDeploying.value"
+            @click="handleDeployAll"
+          >
+            ⚡ Start Full Deployment
+          </BaseButton>
+        </div>
+      </header>
+
+      <!-- Main Layout -->
+      <div class="cockpit-grid">
+        <!-- Sidebar: Steps -->
+        <aside class="steps-sidebar">
+          <div class="section-label">Deployment Steps</div>
+          <StepList @run-step="handleRunStep" />
+          
+          <div class="session-stats">
+            <div class="stat-item">
+              <span class="stat-label">Status</span>
+              <span :class="['stat-value', sessionStore.sessionStatus]">
+                {{ sessionStore.sessionStatus.toUpperCase() }}
+              </span>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Main: Terminal -->
+        <main class="terminal-area">
+          <TerminalPanel 
+            :content="sessionStore.fullLog"
+            :loading="runner.isDeploying.value"
+            :title="`LOGS: ${deployment.name}`"
+          />
+        </main>
       </div>
-
-      <p class="deploy-host">{{ deployment.username }}@{{ deployment.host }}:{{ deployment.sshPort }}</p>
-
-      <!-- Actions -->
-      <div class="deploy-actions">
-        <BaseButton variant="primary" size="lg">
-          ⚡ Deploy All
-        </BaseButton>
-      </div>
-
-      <!-- Step list placeholder -->
-      <StepList />
-
-      <p class="m4-note">
-        Full deploy workflow (live step execution, terminal output) — coming in M4.
-      </p>
     </template>
   </div>
 </template>
 
 <style scoped>
-.view-page { padding: 28px 32px; max-width: 800px; }
-
-.deploy-header {
+.deploy-cockpit {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 4px;
+  flex-direction: column;
+  height: 100vh;
+  padding: 32px;
+  gap: 24px;
+  overflow: hidden;
 }
 
-.back-btn {
+/* ── Header ─────────────────────────────────────────────────── */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.back-link {
   background: none;
   border: none;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: color 0.12s, background-color 0.12s;
-  white-space: nowrap;
+  padding: 0;
+  margin-bottom: 8px;
+  display: block;
 }
 
-.back-btn:hover {
-  color: var(--color-text-primary);
-  background-color: var(--color-surface-2);
+.back-link:hover {
+  color: var(--color-primary-500);
 }
 
-.deploy-title {
+.page-title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 800;
   color: var(--color-text-primary);
+  line-height: 1.2;
 }
 
-.deploy-host {
-  margin: 0 0 20px;
-  font-size: 12px;
+.page-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
   color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ── Grid Layout ────────────────────────────────────────────── */
+.cockpit-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 32px;
+  flex: 1;
+  min-height: 0; /* Important for flex child scroll */
+}
+
+/* ── Sidebar ────────────────────────────────────────────────── */
+.steps-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+
+.session-stats {
+  margin-top: auto;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-surface-3);
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.stat-value {
+  font-size: 11px;
+  font-weight: 700;
   font-family: monospace;
 }
 
-.deploy-actions {
-  margin-bottom: 24px;
-}
+.stat-value.idle { color: var(--color-text-muted); }
+.stat-value.running { color: var(--color-primary-500); }
+.stat-value.completed { color: var(--color-success); }
+.stat-value.failed { color: var(--color-error); }
 
-.m4-note {
-  margin-top: 24px;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  font-style: italic;
+/* ── Main Area ──────────────────────────────────────────────── */
+.terminal-area {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
 }
 
 .not-found {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
   color: var(--color-text-muted);
-  font-size: 13px;
 }
 </style>

@@ -6,15 +6,14 @@ import { remoteServicePath, remoteJarFilename, remoteServiceLogPath } from '@/ut
 import type { Deployment } from '@/types/deployment'
 import type { StepStatus } from '@/types/deployment'
 
-// Step definitions (index = step number - 1)
 const STEP_NAMES = [
   'Test Connection',
   'Validate Remote Path',
-  'Copy JAR',
-  'Extract JAR',
-  'Find Running PID',
-  'Kill Service',
-  'Start Service',
+  'Upload Archive',
+  'Extract Files',
+  'Verify Running Instance',
+  'Stop Existing Service',
+  'Launch Service',
 ]
 
 export function useDeployRunner() {
@@ -23,7 +22,7 @@ export function useDeployRunner() {
   const isDeploying = ref(false)
 
   /**
-   * Run a single step by index. Returns true on success/warning, false on error.
+   * Run a single step by index. 
    */
   async function runStep(deployment: Deployment, stepIndex: number): Promise<boolean> {
     sessionStore.markStepRunning(stepIndex)
@@ -33,25 +32,26 @@ export function useDeployRunner() {
 
     const svcPath = remoteServicePath(deployment)
     const jarName = remoteJarFilename(deployment)
+    const logPath = remoteServiceLogPath(deployment)
 
     try {
       switch (stepIndex) {
         case 0: // Test Connection
-          result = await execSSH(deployment, 'echo ok')
-          status = result.exitCode === 0 && result.output.includes('ok') ? 'success' : 'error'
+          result = await execSSH(deployment, 'exit')
+          status = result.exitCode === 0 ? 'success' : 'error'
           break
 
         case 1: // Validate Remote Path
-          result = await execSSH(deployment, `test -d "${deployment.remoteDeployPath}" && echo ok`)
-          status = result.exitCode === 0 && result.output.includes('ok') ? 'success' : 'error'
+          result = await execSSH(deployment, `mkdir -p "${deployment.remoteDeployPath}" && [ -d "${deployment.remoteDeployPath}" ] && echo "Path valid"`)
+          status = result.exitCode === 0 ? 'success' : 'error'
           break
 
-        case 2: // Copy JAR
+        case 2: // Upload Archive
           result = await execSCP(deployment, deployment.localJarPath, `${deployment.remoteDeployPath}/`)
           status = result.exitCode === 0 ? 'success' : 'error'
           break
 
-        case 3: // Extract JAR
+        case 3: // Extract Files
           result = await execSSH(
             deployment,
             `mkdir -p "${svcPath}" && cd "${svcPath}" && jar xf "${deployment.remoteDeployPath}/${jarName}"`
@@ -59,22 +59,26 @@ export function useDeployRunner() {
           status = result.exitCode === 0 ? 'success' : 'error'
           break
 
-        case 4: // Find Running PID (informational — not a hard failure)
+        case 4: // Verify Running Instance
           result = await execSSH(deployment, `pgrep -f "${svcPath}"`)
+          // Warning if not running (not an error, just means nothing to kill)
+          status = result.exitCode === 0 ? 'success' : 'warning'
+          if (status === 'warning') result.output = 'No existing process found.'
+          break
+
+        case 5: // Stop Existing Service
+          result = await execSSH(deployment, `pkill -f "${svcPath}" || echo "Nothing to kill"`)
           status = result.exitCode === 0 ? 'success' : 'warning'
           break
 
-        case 5: // Kill Service (exit code 1 = no process = non-fatal warning)
-          result = await execSSH(deployment, `pkill -f "${svcPath}"`)
-          status = result.exitCode === 0 ? 'success' : 'warning'
-          break
-
-        case 6: // Start Service
+        case 6: // Launch Service
           if (!deployment.startCommand) {
-            result = { output: 'No start command configured — skipped.', exitCode: 0 }
-            status = 'warning'
+            result = { output: 'Error: No start command configured.', exitCode: 1 }
+            status = 'error'
           } else {
-            result = await execSSH(deployment, `nohup ${deployment.startCommand} &`)
+            // Background the command and redirect logs
+            const cmd = `cd "${svcPath}" && nohup ${deployment.startCommand} > "${logPath}" 2>&1 & sleep 1 && pgrep -f "${svcPath}"`
+            result = await execSSH(deployment, cmd)
             status = result.exitCode === 0 ? 'success' : 'error'
           }
           break
@@ -89,9 +93,6 @@ export function useDeployRunner() {
     return status !== 'error'
   }
 
-  /**
-   * Run all 7 steps in sequence. Halts on error.
-   */
   async function deployAll(deploymentId: string): Promise<void> {
     const deployment = await deploymentsStore.getPlaintextDeployment(deploymentId)
     if (!deployment) throw new Error(`Deployment ${deploymentId} not found`)
@@ -109,9 +110,6 @@ export function useDeployRunner() {
     }
   }
 
-  /**
-   * Run a single step manually (step-by-step mode).
-   */
   async function runSingleStep(deploymentId: string, stepIndex: number): Promise<void> {
     const deployment = await deploymentsStore.getPlaintextDeployment(deploymentId)
     if (!deployment) throw new Error(`Deployment ${deploymentId} not found`)
