@@ -51,6 +51,7 @@ export interface DeploySession {
   isRunning: boolean
   currentStepIndex: number
   resolvedDeployPath: string | null  // wildcard expanded at runtime
+  resolvedSvcPath: string | null     // versioned service dir resolved at runtime
 }
 
 // ── Import / Export ─────────────────────────────────────────
