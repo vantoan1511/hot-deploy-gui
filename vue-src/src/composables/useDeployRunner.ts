@@ -40,7 +40,7 @@ export function useDeployRunner() {
       `find "${parent}" -maxdepth 1 -name "${nameGlob}" -type d 2>/dev/null`)
     const dirs = found.output.split('\n').map(l => l.trim().replace(/\/+$/, '')).filter(Boolean)
     if (dirs.length === 0) return null
-    if (dirs.length === 1) return dirs[0]
+    if (dirs.length === 1) return dirs[0] as string
 
     // Multiple matches: pick newest by mtime
     const mtimeSorted = await execSSH(deployment, `ls -1dt ${dirs.join(' ')} 2>/dev/null`)
