@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDeploymentsStore } from '@/stores/deployments'
+import type { Deployment } from '@/types/deployment'
 import DeploymentForm from '@/components/deployments/DeploymentForm.vue'
 
 const route = useRoute()
@@ -11,16 +12,21 @@ const store = useDeploymentsStore()
 const id = route.params.id as string
 const isEditMode = !!id
 
-const deployment = computed(() => isEditMode ? store.getById(id) : undefined)
+// Plaintext deployment for edit mode — populated after load so password is decrypted
+const deployment = ref<Deployment | undefined>(undefined)
 
 onMounted(async () => {
   if (store.deployments.length === 0) {
     await store.load()
   }
-  
-  if (isEditMode && !deployment.value) {
-    // If we're in edit mode but the ID is invalid, go back home
-    router.replace('/')
+
+  if (isEditMode) {
+    const plain = await store.getPlaintextDeployment(id)
+    if (!plain) {
+      router.replace('/')
+      return
+    }
+    deployment.value = plain
   }
 })
 
@@ -59,6 +65,7 @@ async function handleSubmit(formData: any) {
 
     <div class="form-container">
       <DeploymentForm
+        v-if="!isEditMode || deployment"
         :initial-data="deployment"
         :submit-label="isEditMode ? 'Save Changes' : 'Create Deployment'"
         @submit="handleSubmit"

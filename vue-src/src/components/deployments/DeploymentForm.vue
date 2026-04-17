@@ -271,8 +271,8 @@ function handleSubmit() {
                 Password
               </button>
             </div>
-            <p v-if="form.authMethod === 'password' && !settingsStore.sshpassAvailable && !settingsStore.plinkAvailable" class="warning-msg">
-              ⚠️ Password auth requires sshpass (Linux) or plink (PuTTY/Windows).
+            <p v-if="form.authMethod === 'password' && !settingsStore.sshpassAvailable && !settingsStore.plinkAvailable" class="info-msg">
+              ℹ️ Using built-in OpenSSH with SSH_ASKPASS. For best compatibility, install PuTTY (plink) on Windows or sshpass on Linux.
             </p>
             <p v-else-if="form.authMethod === 'password' && !settingsStore.sshpassAvailable && settingsStore.plinkAvailable" class="info-msg">
               ℹ️ Using plink (PuTTY) for password authentication.

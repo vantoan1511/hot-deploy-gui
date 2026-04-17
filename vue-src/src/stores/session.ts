@@ -60,6 +60,13 @@ export const useSessionStore = defineStore('session', () => {
   })
 
   // ── Actions ──────────────────────────────────────────────
+  const resolvedDeployPath = computed(() => session.value?.resolvedDeployPath ?? null)
+
+  function setResolvedDeployPath(path: string): void {
+    if (!session.value) return
+    session.value.resolvedDeployPath = path
+  }
+
   function startSession(deploymentId: string): void {
     session.value = {
       deploymentId,
@@ -67,6 +74,7 @@ export const useSessionStore = defineStore('session', () => {
       steps: createInitialSteps(),
       isRunning: false,
       currentStepIndex: -1,
+      resolvedDeployPath: null,
     }
   }
 
@@ -116,6 +124,8 @@ export const useSessionStore = defineStore('session', () => {
     fullLog,
     stepResult,
     canStartStep,
+    resolvedDeployPath,
+    setResolvedDeployPath,
     startSession,
     markStepRunning,
     appendStepOutput,

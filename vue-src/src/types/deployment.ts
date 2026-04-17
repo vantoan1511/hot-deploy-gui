@@ -50,6 +50,7 @@ export interface DeploySession {
   steps: StepResult[]
   isRunning: boolean
   currentStepIndex: number
+  resolvedDeployPath: string | null  // wildcard expanded at runtime
 }
 
 // ── Import / Export ─────────────────────────────────────────
