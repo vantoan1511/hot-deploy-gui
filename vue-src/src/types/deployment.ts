@@ -33,7 +33,7 @@ export interface AppSettings {
 
 // ── Deploy Session ──────────────────────────────────────────
 
-export type StepStatus = 'idle' | 'running' | 'success' | 'warning' | 'error'
+export type StepStatus = 'idle' | 'running' | 'success' | 'warning' | 'error' | 'skipped'
 
 export interface StepResult {
   stepIndex: number

@@ -108,14 +108,14 @@ export function useDeployRunner() {
             break
 
           case 5: // Stop Existing Service
-            result = await execSSH(dep, `pkill -f "${svcPath}" || echo "Nothing to kill"`)
+            result = await execSSH(dep, `pkill -f "${svcPath}" && echo "Service stopped successfully" || echo "No running process found"`)
             status = result.exitCode === 0 ? 'success' : 'warning'
             break
 
           case 6: // Launch Service
             if (!dep.startCommand) {
-              result = { output: 'Error: No start command configured.', exitCode: 1 }
-              status = 'error'
+              result = { output: 'Skipped: no start command configured.', exitCode: 0 }
+              status = 'skipped'
             } else {
               const cmd = `cd "${svcPath}" && nohup ${dep.startCommand} > "${logPath}" 2>&1 & sleep 1 && pgrep -f "${svcPath}"`
               result = await execSSH(dep, cmd)

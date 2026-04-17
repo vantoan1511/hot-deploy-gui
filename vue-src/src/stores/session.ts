@@ -55,7 +55,7 @@ export const useSessionStore = defineStore('session', () => {
     if (isRunning.value) return false
     // All steps before must be success (or warning for steps 5-6)
     return session.value.steps.slice(0, index).every(
-      s => s.status === 'success' || s.status === 'warning'
+      s => s.status === 'success' || s.status === 'warning' || s.status === 'skipped'
     )
   })
 

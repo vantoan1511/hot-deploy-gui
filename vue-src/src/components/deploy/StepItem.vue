@@ -31,6 +31,9 @@ const emit = defineEmits<{
         <template v-else-if="status === 'warning'">
           <span>!</span>
         </template>
+        <template v-else-if="status === 'skipped'">
+          <span>—</span>
+        </template>
         <template v-else>
           <span>{{ index + 1 }}</span>
         </template>
@@ -167,6 +170,16 @@ const emit = defineEmits<{
   background-color: color-mix(in srgb, var(--color-warning) 15%, transparent);
   border-color: var(--color-warning);
   color: var(--color-warning);
+}
+
+.skipped .step-icon {
+  background-color: var(--color-surface-2);
+  border-color: var(--color-surface-3);
+  color: var(--color-text-muted);
+}
+
+.skipped .step-name {
+  color: var(--color-text-muted);
 }
 
 .spinner {
