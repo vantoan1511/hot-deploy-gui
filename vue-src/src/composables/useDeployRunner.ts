@@ -60,7 +60,7 @@ export function useDeployRunner() {
     try {
       if (stepIndex === 0) {
         // ── Step 1: Test Connection ───────────────────────────
-        result = await execSSH(deployment, 'exit')
+        result = await execSSH(deployment, 'echo "Connected as $(whoami)@$(hostname) ($(uname -s))"')
         status = result.exitCode === 0 ? 'success' : 'error'
 
       } else if (stepIndex === 1) {
@@ -78,7 +78,7 @@ export function useDeployRunner() {
             status = 'success'
           }
         } else {
-          result = await execSSH(deployment, `mkdir -p "${deployPath}" && [ -d "${deployPath}" ] && echo "Path valid"`)
+          result = await execSSH(deployment, `mkdir -p "${deployPath}" && echo "Path ready: ${deployPath}"`)
           status = result.exitCode === 0 ? 'success' : 'error'
         }
 
@@ -90,22 +90,38 @@ export function useDeployRunner() {
         const logPath = remoteServiceLogPath(dep)
 
         switch (stepIndex) {
-          case 2: // Upload Archive
-            result = await execSCP(dep, dep.localJarPath, `${dep.remoteDeployPath}/`)
-            status = result.exitCode === 0 ? 'success' : 'error'
+          case 2: { // Upload Archive
+            const scpResult = await execSCP(dep, dep.localJarPath, `${dep.remoteDeployPath}/`)
+            if (scpResult.exitCode === 0) {
+              const verify = await execSSH(dep, `ls -lh "${dep.remoteDeployPath}/${jarName}"`)
+              result = { exitCode: 0, output: verify.output.trim() || `Uploaded: ${jarName}` }
+              status = 'success'
+            } else {
+              result = scpResult
+              status = 'error'
+            }
             break
+          }
 
           case 3: // Extract Files
             result = await execSSH(dep,
-              `mkdir -p "${svcPath}" && cd "${svcPath}" && jar xf "${dep.remoteDeployPath}/${jarName}"`)
+              `mkdir -p "${svcPath}" && cd "${svcPath}" && jar xf "${dep.remoteDeployPath}/${jarName}" && echo "Extracted to: ${svcPath}" && ls -lh "${svcPath}" | head -10`)
             status = result.exitCode === 0 ? 'success' : 'error'
             break
 
-          case 4: // Verify Running Instance
-            result = await execSSH(dep, `pgrep -f "${svcPath}"`)
-            status = result.exitCode === 0 ? 'success' : 'warning'
-            if (status === 'warning') result.output = 'No existing process found.'
+          case 4: { // Verify Running Instance
+            const pids = await execSSH(dep, `pgrep -f "${svcPath}"`)
+            if (pids.exitCode === 0 && pids.output.trim()) {
+              const pidList = pids.output.trim().split('\n').join(',')
+              const details = await execSSH(dep, `ps -p ${pidList} -o pid,etime,comm --no-headers 2>/dev/null`)
+              result = { exitCode: 0, output: details.output.trim() || pids.output.trim() }
+              status = 'success'
+            } else {
+              result = { exitCode: 1, output: 'No running process found.' }
+              status = 'warning'
+            }
             break
+          }
 
           case 5: // Stop Existing Service
             result = await execSSH(dep, `pkill -f "${svcPath}" && echo "Service stopped successfully" || echo "No running process found"`)
@@ -118,8 +134,13 @@ export function useDeployRunner() {
               status = 'skipped'
             } else {
               const cmd = `cd "${svcPath}" && nohup ${dep.startCommand} > "${logPath}" 2>&1 & sleep 1 && pgrep -f "${svcPath}"`
-              result = await execSSH(dep, cmd)
-              status = result.exitCode === 0 ? 'success' : 'error'
+              const launchResult = await execSSH(dep, cmd)
+              if (launchResult.exitCode === 0) {
+                result = { exitCode: 0, output: `Service launched (PID: ${launchResult.output.trim()})` }
+              } else {
+                result = launchResult
+              }
+              status = launchResult.exitCode === 0 ? 'success' : 'error'
             }
             break
         }

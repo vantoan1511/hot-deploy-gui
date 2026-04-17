@@ -92,6 +92,22 @@ function askpassEnvPrefix(askpassPath: string): string {
   return `SSH_ASKPASS="${askpassPath}" SSH_ASKPASS_REQUIRE=force DISPLAY=:0`
 }
 
+// ── Remote command encoding ───────────────────────────────
+
+/**
+ * Wraps a remote command as `echo <base64> | base64 -d | sh` so that
+ * the local shell never sees double-quotes, dollar signs, or parens from
+ * the remote command — preventing local expansion and quoting errors.
+ * The remote sh receives the original command verbatim and executes it.
+ */
+function wrapRemoteCmd(cmd: string): string {
+  const bytes = new TextEncoder().encode(cmd)
+  let binary = ''
+  for (const b of bytes) binary += String.fromCharCode(b)
+  const b64 = btoa(binary)
+  return `echo ${b64} | base64 -d | sh`
+}
+
 // ── Result normalisation ──────────────────────────────────
 
 function toResult(r: { stdOut: string; stdErr: string; exitCode: number }): ExecResult {
@@ -106,15 +122,17 @@ function toResult(r: { stdOut: string; stdErr: string; exitCode: number }): Exec
 async function execSSHWithPassword(deployment: Deployment, remoteCmd: string): Promise<ExecResult> {
   const { password = '', host, username, sshPort } = deployment
 
+  const wrapped = wrapRemoteCmd(remoteCmd)
+
   // 1. sshpass (Linux / macOS with Homebrew)
   if (await checkSshpass()) {
     const flags = `-p ${sshPort} -o StrictHostKeyChecking=no -o BatchMode=yes`
-    return toResult(await os.execCommand(`sshpass -p "${password}" ssh ${flags} ${username}@${host} "${remoteCmd}"`))
+    return toResult(await os.execCommand(`sshpass -p "${password}" ssh ${flags} ${username}@${host} "${wrapped}"`))
   }
 
   // 2. plink (Windows with PuTTY installed)
   if (await checkPlink()) {
-    return toResult(await os.execCommand(`plink -P ${sshPort} -pw "${password}" -batch ${username}@${host} "${remoteCmd}"`))
+    return toResult(await os.execCommand(`plink -P ${sshPort} -pw "${password}" -batch ${username}@${host} "${wrapped}"`))
   }
 
   // 3. SSH_ASKPASS — uses OpenSSH built into Windows 10/11 or any modern Linux/macOS
@@ -123,10 +141,7 @@ async function execSSHWithPassword(deployment: Deployment, remoteCmd: string): P
     const prefix = askpassEnvPrefix(askpassPath)
     // Omit -o BatchMode=yes here: BatchMode blocks SSH_ASKPASS
     const flags = `-p ${sshPort} -o StrictHostKeyChecking=no -o PasswordAuthentication=yes`
-    const isWin = getOS() === 'Windows'
-    const cmd = isWin
-      ? `${prefix} ssh ${flags} ${username}@${host} "${remoteCmd}"`
-      : `${prefix} ssh ${flags} ${username}@${host} "${remoteCmd}"`
+    const cmd = `${prefix} ssh ${flags} ${username}@${host} "${wrapped}"`
     return toResult(await os.execCommand(cmd))
   })
 }
@@ -138,7 +153,7 @@ export async function execSSH(deployment: Deployment, remoteCmd: string): Promis
     }
     const keyFlag = deployment.privateKeyPath ? `-i "${deployment.privateKeyPath}"` : ''
     const flags = `-p ${deployment.sshPort} -o StrictHostKeyChecking=no -o BatchMode=yes ${keyFlag}`.trim()
-    return toResult(await os.execCommand(`ssh ${flags} ${deployment.username}@${deployment.host} "${remoteCmd}"`))
+    return toResult(await os.execCommand(`ssh ${flags} ${deployment.username}@${deployment.host} "${wrapRemoteCmd(remoteCmd)}"`))
   } catch (err) {
     return { output: String(err), exitCode: 1 }
   }
