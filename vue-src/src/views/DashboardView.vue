@@ -1,42 +1,46 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { filesystem } from '@neutralinojs/lib'
 import { useDeploymentsStore } from '@/stores/deployments'
+import type { CollisionDecision } from '@/stores/deployments'
+import type { Deployment } from '@/types/deployment'
+import { parseImport, serializeExport } from '@/utils/exportImport'
+import { useOpenDialog, useSaveDialog } from '@/composables/useFileDialog'
 import DeploymentCard from '@/components/deployments/DeploymentCard.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import ImportCollisionDialog from '@/components/ui/ImportCollisionDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import BaseInput from '@/components/ui/BaseInput.vue'
 
 const router = useRouter()
 const store = useDeploymentsStore()
 
+// ── Search ───────────────────────────────────────────────
 const search = ref('')
 const deleteTarget = ref<string | null>(null)
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
   if (!q) return store.sortedDeployments
-  
-  return store.sortedDeployments.filter(d => {
-    return (
-      d.name.toLowerCase().includes(q) ||
-      d.host.toLowerCase().includes(q) ||
-      d.username.toLowerCase().includes(q) ||
-      d.serviceName.toLowerCase().includes(q) ||
-      d.tags.some(t => t.toLowerCase().includes(q))
-    )
-  })
+  return store.sortedDeployments.filter(d =>
+    d.name.toLowerCase().includes(q) ||
+    d.host.toLowerCase().includes(q) ||
+    d.username.toLowerCase().includes(q) ||
+    d.serviceName.toLowerCase().includes(q) ||
+    d.tags.some(t => t.toLowerCase().includes(q))
+  )
 })
 
 onMounted(async () => {
   await store.load()
 })
 
+// ── Delete ───────────────────────────────────────────────
 async function handleClone(id: string) {
   try {
     await store.clone(id)
   } catch (err) {
-    console.error('Failed to clone deployment:', err)
+    showFeedback('error', `Clone failed: ${err}`)
   }
 }
 
@@ -50,9 +54,108 @@ async function confirmDelete() {
       await store.remove(deleteTarget.value)
       deleteTarget.value = null
     } catch (err) {
-      console.error('Failed to delete deployment:', err)
+      showFeedback('error', `Delete failed: ${err}`)
     }
   }
+}
+
+// ── Feedback banner ──────────────────────────────────────
+const feedback = ref<{ type: 'success' | 'error'; message: string } | null>(null)
+let feedbackTimer: ReturnType<typeof setTimeout> | null = null
+
+function showFeedback(type: 'success' | 'error', message: string) {
+  if (feedbackTimer) clearTimeout(feedbackTimer)
+  feedback.value = { type, message }
+  feedbackTimer = setTimeout(() => { feedback.value = null }, 4000)
+}
+
+// ── Export ───────────────────────────────────────────────
+const isExporting = ref(false)
+
+async function handleExportAll() {
+  if (store.deployments.length === 0) {
+    showFeedback('error', 'No deployments to export.')
+    return
+  }
+  isExporting.value = true
+  try {
+    const path = await useSaveDialog({
+      title: 'Export Deployments',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      defaultPath: 'hot-deploy-export.json',
+    })
+    if (!path) return
+    const json = serializeExport(store.deployments)
+    await filesystem.writeFile(path, json)
+    showFeedback('success', `Exported ${store.deployments.length} deployment(s) to file.`)
+  } catch (err) {
+    showFeedback('error', `Export failed: ${err}`)
+  } finally {
+    isExporting.value = false
+  }
+}
+
+// ── Import ───────────────────────────────────────────────
+const isImporting = ref(false)
+const pendingImport = ref<Deployment[] | null>(null)
+const importConflicts = ref<Array<{ incoming: Deployment; existing: Deployment }> | null>(null)
+
+async function handleImport() {
+  isImporting.value = true
+  try {
+    const path = await useOpenDialog({
+      title: 'Import Deployments',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (!path) return
+
+    const raw = await filesystem.readFile(path)
+    const { deployments, errors } = parseImport(raw)
+
+    if (errors.length > 0) {
+      showFeedback('error', `Invalid file: ${errors[0]}`)
+      return
+    }
+
+    const collisions = deployments
+      .filter(d => store.getById(d.id) !== undefined)
+      .map(d => ({ incoming: d, existing: store.getById(d.id)! }))
+
+    if (collisions.length > 0) {
+      pendingImport.value = deployments
+      importConflicts.value = collisions
+    } else {
+      await applyImport(deployments, [])
+    }
+  } catch (err) {
+    showFeedback('error', `Import failed: ${err}`)
+  } finally {
+    isImporting.value = false
+  }
+}
+
+async function handleCollisionConfirm(decisions: CollisionDecision[]) {
+  if (!pendingImport.value) return
+  try {
+    await applyImport(pendingImport.value, decisions)
+  } finally {
+    importConflicts.value = null
+    pendingImport.value = null
+  }
+}
+
+function handleCollisionCancel() {
+  importConflicts.value = null
+  pendingImport.value = null
+}
+
+async function applyImport(deployments: Deployment[], decisions: CollisionDecision[]) {
+  const { added, replaced, skipped } = await store.importMerge(deployments, decisions)
+  const parts: string[] = []
+  if (added > 0) parts.push(`${added} added`)
+  if (replaced > 0) parts.push(`${replaced} replaced`)
+  if (skipped > 0) parts.push(`${skipped} skipped`)
+  showFeedback('success', `Import complete: ${parts.join(', ')}.`)
 }
 </script>
 
@@ -84,6 +187,19 @@ async function confirmDelete() {
         />
         <button v-if="search" class="clear-search" @click="search = ''">×</button>
       </div>
+      <div class="bar-actions">
+        <BaseButton variant="secondary" :loading="isImporting" @click="handleImport">
+          Import
+        </BaseButton>
+        <BaseButton variant="secondary" :loading="isExporting" @click="handleExportAll">
+          Export All
+        </BaseButton>
+      </div>
+    </div>
+
+    <!-- Feedback Banner -->
+    <div v-if="feedback" class="feedback-banner" :class="feedback.type">
+      {{ feedback.message }}
     </div>
 
     <!-- Main Content -->
@@ -138,6 +254,14 @@ async function confirmDelete() {
       @confirm="confirmDelete"
       @cancel="deleteTarget = null"
     />
+
+    <!-- Import Collision Dialog -->
+    <ImportCollisionDialog
+      v-if="importConflicts"
+      :conflicts="importConflicts"
+      @confirm="handleCollisionConfirm"
+      @cancel="handleCollisionCancel"
+    />
   </div>
 </template>
 
@@ -148,7 +272,7 @@ async function confirmDelete() {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 24px;
 }
 
 /* ── Header ─────────────────────────────────────────────────── */
@@ -180,7 +304,7 @@ async function confirmDelete() {
 /* ── Filter Bar ────────────────────────────────────────────── */
 .filter-bar {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -241,6 +365,33 @@ async function confirmDelete() {
   color: var(--color-text-primary);
 }
 
+.bar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ── Feedback Banner ────────────────────────────────────────── */
+.feedback-banner {
+  padding: 10px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  animation: fade-in 0.15s ease;
+}
+
+.feedback-banner.success {
+  background-color: color-mix(in srgb, var(--color-success) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-success) 40%, transparent);
+  color: var(--color-success);
+}
+
+.feedback-banner.error {
+  background-color: color-mix(in srgb, var(--color-error) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-error) 40%, transparent);
+  color: var(--color-error);
+}
+
 /* ── Grid ─────────────────────────────────────────────────── */
 .deployments-grid {
   display: grid;
@@ -293,5 +444,10 @@ async function confirmDelete() {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 </style>

@@ -30,6 +30,11 @@ const router = createRouter({
       name: 'deployment-deploy',
       component: () => import('../views/DeployView.vue'),
     },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('../views/SettingsView.vue'),
+    },
   ],
 })
 

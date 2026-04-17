@@ -141,6 +141,41 @@ export const useDeploymentsStore = defineStore('deployments', () => {
     await persist()
   }
 
+  async function importMerge(
+    incoming: Deployment[],
+    decisions: CollisionDecision[],
+  ): Promise<{ added: number; replaced: number; skipped: number }> {
+    const decisionMap = new Map(decisions.map(d => [d.id, d.action]))
+    let added = 0, replaced = 0, skipped = 0
+
+    for (const dep of incoming) {
+      const existingIdx = deployments.value.findIndex(d => d.id === dep.id)
+      if (existingIdx === -1) {
+        deployments.value.push(dep)
+        added++
+      } else {
+        const action = decisionMap.get(dep.id) ?? 'skip'
+        if (action === 'replace') {
+          deployments.value[existingIdx] = dep
+          replaced++
+        } else if (action === 'keep-both') {
+          deployments.value.push({
+            ...dep,
+            id: uuidv4(),
+            name: `${dep.name} (Imported)`,
+            updatedAt: new Date().toISOString(),
+          })
+          added++
+        } else {
+          skipped++
+        }
+      }
+    }
+
+    await persist()
+    return { added, replaced, skipped }
+  }
+
   return {
     deployments,
     sortedDeployments,
@@ -154,5 +189,13 @@ export const useDeploymentsStore = defineStore('deployments', () => {
     remove,
     clone,
     replaceAll,
+    importMerge,
   }
 })
+
+export type CollisionAction = 'replace' | 'keep-both' | 'skip'
+
+export interface CollisionDecision {
+  id: string
+  action: CollisionAction
+}

@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { filesystem } from '@neutralinojs/lib'
 import { useDeploymentsStore } from '@/stores/deployments'
+import { serializeExport } from '@/utils/exportImport'
+import { useSaveDialog } from '@/composables/useFileDialog'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import TagBadge from '@/components/ui/TagBadge.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
@@ -12,6 +15,7 @@ const store = useDeploymentsStore()
 
 const id = route.params.id as string
 const showDeleteConfirm = ref(false)
+const isExporting = ref(false)
 
 const deployment = computed(() => store.getById(id))
 
@@ -24,6 +28,23 @@ onMounted(async () => {
 async function handleDelete() {
   await store.remove(id)
   router.push('/')
+}
+
+async function handleExport() {
+  if (!deployment.value) return
+  isExporting.value = true
+  try {
+    const slug = deployment.value.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const path = await useSaveDialog({
+      title: 'Export Deployment',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      defaultPath: `${slug}.json`,
+    })
+    if (!path) return
+    await filesystem.writeFile(path, serializeExport([deployment.value]))
+  } finally {
+    isExporting.value = false
+  }
 }
 </script>
 
@@ -42,6 +63,9 @@ async function handleDelete() {
         <div class="header-actions">
           <BaseButton variant="ghost" class="delete-link" @click="showDeleteConfirm = true">
             Delete
+          </BaseButton>
+          <BaseButton variant="ghost" :loading="isExporting" @click="handleExport">
+            Export
           </BaseButton>
           <BaseButton variant="secondary" @click="router.push(`/deployments/${id}/edit`)">
             Edit
