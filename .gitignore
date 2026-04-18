@@ -59,3 +59,5 @@ __screenshots__/
 .claude/
 
 .vscode/
+
+hot-deploy-export.json
