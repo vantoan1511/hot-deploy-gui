@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-Hot Deploy GUI is a cross-platform desktop application (Windows, macOS, Linux) that lets developers manage remote Java service deployments from a single, local UI. Each "deployment" is a saved configuration that encapsulates SSH connection details, local artifact path, remote target path, and service name. From that configuration, the app drives a deterministic, multi-step deploy workflow over SSH.
+Hot Deploy GUI is a cross-platform desktop application (Windows, macOS, Linux) that lets developers manage remote Java service deployments from a single, local UI. Each "deployment" is a saved configuration that encapsulates SSH connection details, local artifact path, remote target path, and one or more named services. From that configuration, the app drives a deterministic, multi-step deploy workflow over SSH.
 
 ---
 
@@ -28,24 +28,33 @@ A deployment is the central data entity of the app. It contains:
 | `privateKeyPath` | `string?` | Absolute local path to SSH private key (if `authMethod === "key"`) |
 | `password` | `string?` | SSH password, stored encrypted (if `authMethod === "password"`) |
 | `sshPort` | `number` | SSH port, default `22` |
-| `localJarPath` | `string` | Absolute local path to the `.jar` file |
+| `localJarPath` | `string` | Absolute local path to the `.jar` file (legacy single-service field) |
 | `remoteDeployPath` | `string` | Absolute remote path, e.g. `/opt/my-app/temp/services` |
 | `remoteLogPath` | `string` | Absolute remote path, e.g. `/opt/my-app/logs` |
-| `serviceName` | `string` | Name used to derive service folder and identify the running process |
-| `startCommand` | `string` | Shell command to start the service after deploy, default is empty |
+| `serviceName` | `string` | Name used to derive service folder and identify the running process (legacy single-service field) |
+| `startCommand` | `string` | Shell command to start the service after deploy (legacy single-service field) |
+| `services` | `Service[]` | Array of named services; each has `name`, `localJarPath`, `startCommand` |
 | `createdAt` | `string` (ISO 8601) | Creation timestamp |
 | `updatedAt` | `string` (ISO 8601) | Last modification timestamp |
 | `tags` | `string[]` | Optional user-defined labels for filtering |
 | `description` | `string?` | Optional free-text notes |
 
+### 2.2 Service
+
+Each entry in `services` represents an independently deployable unit within a deployment:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Service identifier, used for remote path derivation |
+| `localJarPath` | `string` | Absolute local path to the `.jar` file |
+| `startCommand` | `string` | Shell command to start this service after deploy |
+
 **Derived values (not stored, computed at runtime):**
-- `remoteServicePath` = `remoteDeployPath` + `/` + `serviceName`  
-  e.g. `/opt/my-app/temp/services/my-service`
-- support wildcard in `remoteDeployPath`
-  e.g. `/opt/my-app/temp/services*`
-- `remoteJarFilename` = basename of `localJarPath`
-- `remoteServiceLogPath` = `remoteLogPath` + `/` + `serviceName` + `.log`
-  e.g. `/opt/my-app/logs/my-service.log`
+- `remoteServicePath` = `remoteDeployPath` + `/` + `service.name`
+- Wildcard support in `remoteDeployPath`: e.g. `/opt/my-app/temp/services*`
+- `remoteJarFilename` = basename of `service.localJarPath`
+- `remoteServiceLogPath` = `remoteLogPath` + `/` + `service.name` + `.log`
+
 ---
 
 ## 3. Feature Catalogue
@@ -65,11 +74,11 @@ All deployments are stored locally (see §6 Data Persistence).
 ### 3.2 Import / Export
 
 - **Export:** Serialize selected deployment(s) or all deployments to a `.json` file via the OS file-save dialog. Sensitive fields (`password`) are omitted or optionally encrypted with a user-supplied passphrase.
-- **Import:** Accept a `.json` file. Parse, validate schema, detect UUID collisions (offer "replace" or "keep both" per record), then merge into local store. Passwords in imported files are treated as absent unless the user supplies the matching passphrase.
+- **Import:** Accept a `.json` file. Parse, validate schema (zod), detect UUID collisions (offer "replace" or "keep both" per record via `ImportCollisionDialog`), then merge into local store. Legacy single-service format is migrated automatically on import. Passwords in imported files are treated as absent unless the user supplies the matching passphrase.
 
 ### 3.3 Deploy Workflow
 
-The deploy workflow is a **linear sequence of steps**. Users may trigger it in two modes:
+The deploy workflow is a **linear sequence of steps per service**. Users may trigger it in two modes:
 
 | Mode | Description |
 |---|---|
@@ -78,27 +87,47 @@ The deploy workflow is a **linear sequence of steps**. Users may trigger it in t
 
 The app supports **both modes** simultaneously: a "Deploy All" button plus individual step controls on the same screen.
 
+When a deployment has multiple services, a `ServiceSelectDialog` lets the user choose which services to include before the run begins.
+
 #### 3.3.1 Step Definitions
+
+Global steps run once per deployment session; per-service steps run once per selected service.
+
+**Global steps:**
 
 | # | Step Name | Command / Logic | Success Condition |
 |---|---|---|---|
 | 1 | **Test Connection** | `ssh -p <port> -o ConnectTimeout=5 <user>@<host> echo ok` | Exit code 0, stdout contains `ok` |
 | 2 | **Validate Remote Path** | `ssh … "test -d <remoteDeployPath> && echo ok"` | Stdout contains `ok` |
+
+**Per-service steps (repeated for each selected service):**
+
+| # | Step Name | Command / Logic | Success Condition |
+|---|---|---|---|
 | 3 | **Copy JAR** | `scp -P <port> <localJarPath> <user>@<host>:<remoteDeployPath>/` | Exit code 0 |
 | 4 | **Extract JAR** | `ssh … "mkdir -p <remoteServicePath> && cd <remoteServicePath> && jar xf <remoteDeployPath>/<jarFilename>"` | Exit code 0 |
-| 5 | **Find Running PID** | `ssh … "pgrep -f <remoteServicePath>"` | Exit code 0 and a PID is returned (or "not running" state noted — not a hard failure) |
-| 6 | **Kill Service** | `ssh … "pkill -f <remoteServicePath>"` | Exit code 0, or 1 if no process found (treated as non-fatal warning) |
+| 5 | **Find Running PID** | `ssh … "pgrep -f <remoteServicePath>"` | Exit code 0 and a PID is returned (or "not running" — not a hard failure) |
+| 6 | **Kill Service** | `ssh … "pkill -f <remoteServicePath>"` | Exit code 0, or 1 if no process found (non-fatal warning) |
 | 7 | **Start Service** | `ssh … "<startCommand>"` (runs detached via `nohup … &`) | Exit code 0 |
 
-> Steps 5–7 are always executed (they are not skipped when PID is not found). Step 5 is informational; Step 6 is a no-op if nothing is running, and step 7 is a no-op if the start command is empty.
+> Steps 5–7 are always executed. Step 5 is informational; Step 6 is a no-op if nothing is running; Step 7 is a no-op if `startCommand` is empty.
 
 ### 3.4 Output Display
 
 Each step surfaces output via a **collapsible terminal panel underneath a step-status list**:
 
-- **Step status list:** Icon-based indicators (idle / running / success / warning / error) with step name and elapsed time.
+- **Step status list:** Icon-based indicators (idle / running / success / warning / error) with step name and elapsed time. Steps are grouped by service in multi-service sessions.
 - **Terminal panel:** Live-streaming stdout + stderr from the underlying SSH/SCP command, rendered in a monospaced font with ANSI colour support. Collapsible per step; expandable to full-screen.
 - Logs for a session are kept in memory and cleared when a new deploy session starts.
+
+### 3.5 Integrated Tools
+
+Additional tool integrations are embedded in the sidebar:
+
+| Tool | Route | Integration |
+|---|---|---|
+| **Release Tool** | `/release-tool` | Opens [Orchestrix Release Tool](https://releasetoo1.netlify.app/) in the system default browser via `Neutralino.os.open()`. Iframe embedding is not used because `showDirectoryPicker` is blocked in cross-origin iframes (Chrome 94+). |
+| **Devtools+** | `/devtools` | Embedded full-height iframe pointing to `https://devtoo1s.vercel.app/`. |
 
 ---
 
@@ -107,48 +136,54 @@ Each step surfaces output via a **collapsible terminal panel underneath a step-s
 ```
 hot-deploy-gui/
 ├── neutralino.config.json
-├── src/
-│   ├── main.ts                  # App entry point
+├── vue-src/src/
+│   ├── main.ts                       # App entry point; calls Neutralino init()
 │   ├── App.vue
 │   ├── router/
-│   │   └── index.ts             # Vue Router (hash mode for NeutralinoJS)
+│   │   └── index.ts                  # Vue Router (hash mode for NeutralinoJS)
 │   ├── stores/
-│   │   ├── deployments.ts       # Pinia store — deployment CRUD + persistence
-│   │   └── session.ts           # Pinia store — active deploy session state
+│   │   ├── deployments.ts            # Pinia — deployment CRUD + persistence + encryption
+│   │   ├── session.ts                # Pinia — active deploy session state
+│   │   └── settings.ts               # Pinia — app settings; sshpass/plink availability check
 │   ├── views/
-│   │   ├── DashboardView.vue    # Deployment list + search/filter
-│   │   ├── DeploymentFormView.vue
-│   │   ├── DeploymentDetailView.vue
-│   │   └── DeployView.vue       # Workflow execution screen
+│   │   ├── DashboardView.vue         # Deployment list + search/filter + import/export
+│   │   ├── DeploymentFormView.vue    # Create/edit form (create & edit mode)
+│   │   ├── DeploymentDetailView.vue  # Read-only detail + export/delete actions
+│   │   ├── DeployView.vue            # Workflow execution screen
+│   │   ├── ReleaseToolView.vue       # Launch card for Orchestrix Release Tool (opens in browser)
+│   │   ├── DevtoolsView.vue          # Full-height iframe for Devtools+
+│   │   └── SettingsView.vue          # Settings placeholder
 │   ├── components/
 │   │   ├── layout/
-│   │   │   ├── AppShell.vue
-│   │   │   └── Sidebar.vue
+│   │   │   ├── AppShell.vue          # Root layout; sidebar + router-view
+│   │   │   └── Sidebar.vue           # Nav: Deployments · Release Tool · Devtools+ · Settings
 │   │   ├── deployments/
 │   │   │   ├── DeploymentCard.vue
-│   │   │   ├── DeploymentForm.vue
+│   │   │   ├── DeploymentForm.vue    # Form with multi-service management
 │   │   │   └── DeploymentContextMenu.vue
 │   │   ├── deploy/
-│   │   │   ├── StepList.vue
+│   │   │   ├── StepList.vue          # Global + per-service step groups
 │   │   │   ├── StepItem.vue
 │   │   │   └── TerminalPanel.vue
 │   │   └── ui/
 │   │       ├── ConfirmDialog.vue
+│   │       ├── ImportCollisionDialog.vue  # UUID collision resolution on import
+│   │       ├── ServiceSelectDialog.vue    # Service selection before multi-service deploy
 │   │       ├── BaseButton.vue
 │   │       ├── BaseInput.vue
 │   │       └── TagBadge.vue
 │   ├── composables/
-│   │   ├── useSSH.ts            # SSH/SCP command execution via Neutralino.os.execCommand
-│   │   ├── useDeployRunner.ts   # Orchestrates step execution and state
-│   │   └── useFileDialog.ts     # Wraps Neutralino file open/save dialogs
+│   │   ├── useSSH.ts                 # SSH/SCP execution; sshpass/plink detection
+│   │   ├── useDeployRunner.ts        # Step orchestration; per-service loop; output polling
+│   │   └── useFileDialog.ts          # Neutralino file open/save dialog wrappers
 │   ├── types/
-│   │   └── deployment.ts        # TypeScript interfaces
+│   │   └── deployment.ts             # Service, Deployment, AuthMethod, StepStatus, DeploySession, ExportBundle, AppSettings
 │   ├── utils/
-│   │   ├── crypto.ts            # Password encryption/decryption (AES-GCM via Web Crypto API)
-│   │   ├── exportImport.ts      # JSON serialization and schema validation
-│   │   └── pathUtils.ts         # Remote path construction helpers
+│   │   ├── crypto.ts                 # AES-GCM 256 password encryption (Web Crypto + PBKDF2)
+│   │   ├── exportImport.ts           # Zod validation; legacy single-service migration
+│   │   └── pathUtils.ts              # Remote path construction helpers
 │   └── assets/
-│       └── main.css             # Tailwind v4 entry
+│       └── main.css                  # Tailwind v4 entry
 ```
 
 ---
@@ -162,31 +197,32 @@ NeutralinoJS does not ship a native SSH library. All remote operations are execu
 | Method | Command flag |
 |---|---|
 | SSH key | `-i <privateKeyPath> -o StrictHostKeyChecking=no` |
-| Password | Invoke `sshpass -p <password> ssh …` (requires `sshpass` to be installed on the host OS) |
+| Password (Linux/macOS) | `sshpass -p <password> ssh …` (requires `sshpass`) |
+| Password (Windows) | `plink -pw <password> …` (requires PuTTY `plink`) |
 
-The app will detect whether `sshpass` is available at startup and display a warning if password-auth deployments exist but `sshpass` is missing.
+The `settings` store checks for `sshpass` (Unix) and `plink` (Windows) availability at startup and surfaces a warning if password-auth deployments exist but the required binary is missing.
 
 ### 5.2 Live Output Streaming
 
-`Neutralino.os.execCommand` currently returns only when the process exits (no native streaming). To simulate live output:
+`Neutralino.os.execCommand` returns only when the process exits (no native streaming). To simulate live output:
 
 1. Redirect stdout/stderr to a temp file: `ssh … "cmd" > /tmp/hdg-<uuid>.log 2>&1 &`
 2. Poll the temp file with `Neutralino.filesystem.readFile` every 200 ms, appending new content to the terminal panel.
 3. On process exit, do a final read and clean up.
 
-A `useDeployRunner` composable encapsulates this pattern.
+`useDeployRunner` encapsulates this pattern.
 
 ### 5.3 Error Handling
 
 - Non-zero exit code → step marked **Error**, sequence halts (in full-deploy mode).
 - SSH connection timeout → surface human-readable message.
-- `sshpass` missing + password auth → block execution with actionable error.
+- `sshpass` / `plink` missing + password auth → block execution with actionable error.
 
 ---
 
 ## 6. Data Persistence
 
-All deployment configurations are stored locally in a JSON file managed by the app via `Neutralino.storage` (which persists to `~/.config/hot-deploy-gui/` on Linux/macOS, `%APPDATA%\hot-deploy-gui\` on Windows).
+All deployment configurations are stored locally via `Neutralino.storage` (persists to `~/.config/hot-deploy-gui/` on Linux/macOS, `%APPDATA%\hot-deploy-gui\` on Windows).
 
 ### 6.1 Storage Keys
 
@@ -197,7 +233,7 @@ All deployment configurations are stored locally in a JSON file managed by the a
 
 ### 6.2 Password Storage
 
-Passwords are encrypted with **AES-GCM 256** using the Web Crypto API before being written to disk. The encryption key is derived from a machine-specific identifier (e.g. the Neutralino app token + a fixed app salt) via PBKDF2. This is not multi-user key management — it is obfuscation against casual file inspection.
+Passwords are encrypted with **AES-GCM 256** using the Web Crypto API before being written to disk. The encryption key is derived from a machine-specific identifier via PBKDF2. This is obfuscation against casual file inspection, not multi-user key management.
 
 ---
 
@@ -216,10 +252,15 @@ Passwords are encrypted with **AES-GCM 256** using the Web Crypto API before bei
       "authMethod": "key",
       "privateKeyPath": "/home/user/.ssh/id_rsa",
       "sshPort": 22,
-      "localJarPath": "/home/user/builds/auth-service.jar",
       "remoteDeployPath": "/opt/my-app/temp/services",
-      "serviceName": "auth-service",
-      "startCommand": "nohup java -jar /opt/my-app/temp/services/auth-service/auth-service.jar > /var/log/auth-service.log 2>&1 &",
+      "remoteLogPath": "/opt/my-app/logs",
+      "services": [
+        {
+          "name": "auth-service",
+          "localJarPath": "/home/user/builds/auth-service.jar",
+          "startCommand": "nohup java -jar /opt/my-app/temp/services/auth-service/auth-service.jar > /var/log/auth-service.log 2>&1 &"
+        }
+      ],
       "tags": ["production", "auth"],
       "description": "",
       "createdAt": "2025-01-01T00:00:00Z",
@@ -229,6 +270,8 @@ Passwords are encrypted with **AES-GCM 256** using the Web Crypto API before bei
   ]
 }
 ```
+
+Legacy single-service exports (using top-level `serviceName` / `localJarPath` / `startCommand`) are automatically migrated to the `services` array on import.
 
 Schema validation uses **zod** on import, with user-visible field-level error messages.
 
@@ -281,19 +324,22 @@ Schema validation uses **zod** on import, with user-visible field-level error me
 │  ─────────────────────    │                          │
 │  App logo + name          │  [View-specific content] │
 │  ─────────────────────    │                          │
-│  Nav: Deployments         │                          │
-│       Settings            │                          │
+│  Nav: ⚡ Deployments      │                          │
+│       🔖 Release Tool     │                          │
+│       🛠 Devtools+        │                          │
+│       ⚙  Settings         │                          │
 │  ─────────────────────    │                          │
 │  [footer: app version]    │                          │
 └──────────────────────────────────────────────────────┘
 ```
 
 ### 8.5 Key Component Patterns
-- **Home Page:** Deployments display in grid/list layout.
+
+- **Home Page:** Deployments display in grid/list layout with search and tag filter.
 - **Deployment Card:** 1-line name, 2-line host+path summary, auth-method badge, tag chips, hover-reveal context-menu (⋯)
-- **Step Item:** Left-side status icon with animated spinner (running state), step name, elapsed time right-aligned, chevron to expand terminal output
-- **Terminal Panel:** `bg-surface-0`, monospaced `text-xs`, ANSI colours via a lightweight renderer (e.g. `ansi-to-html`), max-height with scroll, "Copy output" button
-- **Form:** Two-column grid on wider views, single-column on narrow, inline validation errors, SSH auth method toggle that conditionally shows key path vs. password field
+- **Step Item:** Left-side status icon with animated spinner (running state), step name, elapsed time right-aligned, chevron to expand terminal output. Steps are grouped by service name in multi-service sessions.
+- **Terminal Panel:** `bg-surface-0`, monospaced `text-xs`, ANSI colours via `ansi-to-html`, max-height with scroll, "Copy output" button.
+- **Form:** Multi-service editor with add/remove service rows. Two-column grid on wider views, single-column on narrow, inline validation errors, SSH auth method toggle that conditionally shows key path vs. password field.
 
 ---
 
@@ -306,45 +352,47 @@ Schema validation uses **zod** on import, with user-visible field-level error me
 | `/deployments/:id` | `DeploymentDetailView` | Read-only detail |
 | `/deployments/:id/edit` | `DeploymentFormView` | Edit mode |
 | `/deployments/:id/deploy` | `DeployView` | Workflow execution |
+| `/settings` | `SettingsView` | App settings (placeholder) |
+| `/release-tool` | `ReleaseToolView` | Launch card → opens in system browser |
+| `/devtools` | `DevtoolsView` | Embedded iframe |
 
 ---
 
 ## 10. Key Dependencies
 
-| Package | Purpose |
-|---|---|
-| `neutralinojs/neutralino.js` | Desktop API (file system, OS exec, dialogs) |
-| `vue@3` | UI framework |
-| `pinia` | State management |
-| `vue-router@4` | Routing |
-| `zod` | Runtime schema validation (import) |
-| `ansi-to-html` | Render ANSI codes in terminal panel |
-| `uuid` | UUID v4 generation |
-| `tailwindcss@4` | Styling |
-| `@vueuse/core` | Composable utilities (useLocalStorage fallback, etc.) |
+| Package | Version | Purpose |
+|---|---|---|
+| `@neutralinojs/lib` | ^6.5.0 | Desktop API (filesystem, OS exec, dialogs, storage) |
+| `vue` | ^3.5 | UI framework |
+| `pinia` | ^3.0 | State management |
+| `vue-router` | ^5.0 | Routing |
+| `zod` | ^4.3 | Runtime schema validation (import) |
+| `ansi-to-html` | ^0.7 | Render ANSI codes in terminal panel |
+| `uuid` | ^13.0 | UUID v4 generation |
+| `tailwindcss` | ^4.2 | Styling |
+| `@vueuse/core` | ^14.2 | Composable utilities |
 
 ---
 
 ## 11. Out of Scope (v1.0)
 
-The following are noted for potential future scope but are **not** included in this specification:
-
-- Multi-services in one deployment (add `services` array to deployment, each `service` has `name`, `localJarPath`, `startCommand`, `stopCommand`)
-- Multi-file deployments (config files, scripts alongside JAR) — architecture is extensible, field is `localJarPath` singular for now
+- Multi-file deployments (config files, scripts alongside JAR)
 - Deployment history / audit log
 - Scheduled / automated deploys
 - Remote log tailing post-deploy
 - Multi-hop SSH (jump hosts / bastion)
 - Team sync / cloud-hosted config store
 
+> **Note:** Multi-service deployments were originally listed as out-of-scope but have been implemented. See §2.2 and §3.3.
+
 ---
 
 ## 12. Development Milestones
 
-| Milestone | Deliverables |
-|---|---|
-| **M1 — Foundation** | NeutralinoJS + Vue + TS + Tailwind scaffold; routing; Pinia stores wired to Neutralino.storage; design tokens |
-| **M2 — CRUD** | Deployment form (create/edit); card list; clone; delete; detail view |
-| **M3 — Import/Export** | JSON export (single + all); JSON import with collision handling; zod validation |
-| **M4 — Deploy Workflow** | SSH composable; step runner; both trigger modes; terminal panel with polling |
-| **M5 — Polish** | Error states; empty states; keyboard navigation; OS-native dialogs; app icon + window chrome |
+| Milestone | Status | Deliverables |
+|---|---|---|
+| **M1 — Foundation** | ✅ Done | NeutralinoJS + Vue + TS + Tailwind scaffold; routing; Pinia stores wired to Neutralino.storage; design tokens |
+| **M2 — CRUD** | ✅ Done | Deployment form (create/edit/clone/delete); card list; detail view; multi-service editor |
+| **M3 — Import/Export** | ✅ Done | JSON export (single + all); JSON import with collision dialog; zod validation; legacy format migration |
+| **M4 — Deploy Workflow** | ✅ Done | SSH composable; step runner; both trigger modes; terminal panel with polling; multi-service step groups; service selection dialog |
+| **M5 — Polish** | ✅ Done | Error states; empty states; sshpass/plink detection; settings store; integrated tools (Release Tool, Devtools+) |
