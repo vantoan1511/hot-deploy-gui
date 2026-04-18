@@ -8,8 +8,10 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Deployments', to: '/', icon: '⚡' },
-  { label: 'Settings',    to: '/settings', icon: '⚙' },
+  { label: 'Deployments',  to: '/',             icon: '⚡' },
+  { label: 'Release Tool', to: '/release-tool', icon: '🔖' },
+  { label: 'Devtools+',    to: '/devtools',     icon: '🛠' },
+  { label: 'Settings',     to: '/settings',     icon: '⚙' },
 ]
 
 const appVersion = __APP_VERSION__

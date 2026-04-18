@@ -35,6 +35,16 @@ const router = createRouter({
       name: 'settings',
       component: () => import('../views/SettingsView.vue'),
     },
+    {
+      path: '/release-tool',
+      name: 'release-tool',
+      component: () => import('../views/ReleaseToolView.vue'),
+    },
+    {
+      path: '/devtools',
+      name: 'devtools',
+      component: () => import('../views/DevtoolsView.vue'),
+    },
   ],
 })
 
