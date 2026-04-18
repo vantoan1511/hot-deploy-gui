@@ -20,7 +20,7 @@
       "minWidth": 900,
       "minHeight": 600,
       "icon": "/vue-src/public/favicon.ico",
-      "enableInspector": true
+      "enableInspector": false
     }
   },
   "cli": {

@@ -23,6 +23,7 @@ function hasWildcard(path: string): boolean {
   return path.includes('*') || path.includes('?')
 }
 
+
 export function useDeployRunner() {
   const sessionStore = useSessionStore()
   const deploymentsStore = useDeploymentsStore()
@@ -112,19 +113,39 @@ export function useDeployRunner() {
           const svcPath = sessionStore.resolvedSvcPaths[service.id] ?? null
 
           switch (localStep) {
-            case 0: { // Resolve Service Dir
+            case 0: { // Resolve Service Dir  |  Find Remote JAR (UI service)
               const deployPath = dep.remoteDeployPath
+
+              if (service.isUiService) {
+                // Resolve the existing remote JAR by service.name (supports wildcards)
+                const namePattern = service.name.endsWith('.jar') ? service.name : `${service.name}.jar`
+                const found = await execSSH(deployment,
+                  `find "${deployPath}" -maxdepth 1 -name "${namePattern}" 2>/dev/null`)
+                const jars = found.output.split('\n').map(l => l.trim()).filter(Boolean)
+
+                if (jars.length === 0) {
+                  result = { output: `No JAR matching "${namePattern}" found in ${deployPath}.\nCheck the service name in the configuration.`, exitCode: 1 }
+                  status = 'error'
+                } else if (jars.length > 1) {
+                  result = { output: `Multiple JARs match "${namePattern}":\n${jars.join('\n')}\n\nPlease update the service name to match exactly one JAR.`, exitCode: 1 }
+                  status = 'error'
+                } else {
+                  sessionStore.setResolvedSvcPath(service.id, jars[0]!)
+                  result = { output: `Remote JAR → ${jars[0]}`, exitCode: 0 }
+                  status = 'success'
+                }
+                break
+              }
+
               let resolvedSvc: string | null = null
               let svcPattern = service.name
 
               if (hasWildcard(service.name)) {
-                svcPattern = service.name
                 resolvedSvc = await resolveRemoteDir(deployment, `${deployPath}/${svcPattern}`)
               } else {
                 const exactCheck = await execSSH(deployment, `[ -d "${deployPath}/${service.name}" ] && echo ok`)
                 if (exactCheck.output.includes('ok')) {
                   resolvedSvc = `${deployPath}/${service.name}`
-                  svcPattern = service.name
                 } else {
                   svcPattern = `${service.name}*`
                   resolvedSvc = await resolveRemoteDir(deployment, `${deployPath}/${svcPattern}`)
@@ -132,8 +153,29 @@ export function useDeployRunner() {
               }
 
               if (!resolvedSvc) {
-                result = { output: `No service directory matching "${deployPath}/${svcPattern}" found on the remote host.`, exitCode: 1 }
-                status = 'error'
+                // Fallback: look for a matching JAR in the deploy path (UI-style artifact)
+                const jarPattern = `${service.name}*.jar`
+                const jarSearch = await execSSH(deployment,
+                  `find "${deployPath}" -maxdepth 1 -name "${jarPattern}" 2>/dev/null`)
+                const jars = jarSearch.output.split('\n').map(l => l.trim()).filter(Boolean)
+
+                if (jars.length === 1) {
+                  sessionStore.setResolvedSvcPath(service.id, jars[0]!)
+                  result = { output: `No service directory found; resolved as standalone JAR → ${jars[0]}`, exitCode: 0 }
+                  status = 'success'
+                } else if (jars.length > 1) {
+                  result = {
+                    output: `No service directory found. Multiple JARs match "${jarPattern}":\n${jars.join('\n')}\n\nEnable "UI Service" mode and use a more specific service name.`,
+                    exitCode: 1,
+                  }
+                  status = 'error'
+                } else {
+                  result = {
+                    output: `No service directory or JAR matching "${service.name}" found in ${deployPath}.`,
+                    exitCode: 1,
+                  }
+                  status = 'error'
+                }
               } else {
                 sessionStore.setResolvedSvcPath(service.id, resolvedSvc)
                 result = { output: `Service directory → ${resolvedSvc}`, exitCode: 0 }
@@ -144,7 +186,7 @@ export function useDeployRunner() {
 
             case 1: { // Upload Archive
               if (!svcPath) {
-                result = { output: 'Service directory not resolved. Run "Resolve Service Dir" first.', exitCode: 1 }
+                result = { output: 'Remote target not resolved. Run the first step first.', exitCode: 1 }
                 status = 'error'
               } else {
                 const scpResult = await execSCP(dep, service.localJarPath, `${dep.remoteDeployPath}/`)
@@ -160,10 +202,15 @@ export function useDeployRunner() {
               break
             }
 
-            case 2: { // Extract Files
+            case 2: { // Extract Files  |  Replace Remote JAR (UI service)
               if (!svcPath) {
-                result = { output: 'Service directory not resolved. Run "Resolve Service Dir" first.', exitCode: 1 }
+                result = { output: 'Remote target not resolved. Run the first step first.', exitCode: 1 }
                 status = 'error'
+              } else if (service.isUiService || svcPath.endsWith('.jar')) {
+                // Replace the resolved remote JAR with the uploaded local jar
+                result = await execSSH(dep,
+                  `mv "${dep.remoteDeployPath}/${jarName}" "${svcPath}" && echo "Replaced: ${svcPath}" && ls -lh "${svcPath}"`)
+                status = result.exitCode === 0 ? 'success' : 'error'
               } else {
                 result = await execSSH(dep,
                   `cd "${svcPath}" && jar xf "${dep.remoteDeployPath}/${jarName}" && echo "Extracted to: ${svcPath}" && ls -lh "${svcPath}" | head -10`)
@@ -174,7 +221,7 @@ export function useDeployRunner() {
 
             case 3: { // Verify Running Instance
               if (!svcPath) {
-                result = { output: 'Service directory not resolved. Run "Resolve Service Dir" first.', exitCode: 1 }
+                result = { output: 'Remote target not resolved. Run the first step first.', exitCode: 1 }
                 status = 'error'
               } else {
                 const pids = await execSSH(dep, `pgrep -f "${svcPath}"`)
@@ -196,7 +243,7 @@ export function useDeployRunner() {
                 result = await execSSH(dep, service.stopCommand)
                 status = result.exitCode === 0 ? 'success' : 'warning'
               } else if (!svcPath) {
-                result = { output: 'Service directory not resolved. Run "Resolve Service Dir" first.', exitCode: 1 }
+                result = { output: 'Remote target not resolved. Run the first step first.', exitCode: 1 }
                 status = 'error'
               } else {
                 result = await execSSH(dep,
@@ -211,10 +258,12 @@ export function useDeployRunner() {
                 result = { output: 'Skipped: no start command configured.', exitCode: 0 }
                 status = 'skipped'
               } else if (!svcPath) {
-                result = { output: 'Service directory not resolved. Run "Resolve Service Dir" first.', exitCode: 1 }
+                result = { output: 'Remote target not resolved. Run the first step first.', exitCode: 1 }
                 status = 'error'
               } else {
-                const cmd = `cd "${svcPath}" && nohup ${service.startCommand} > "${logPath}" 2>&1 & sleep 1 && pgrep -f "${svcPath}"`
+                // JAR-resolved path (UI service or auto-detected): workDir is deploy path, not the JAR itself
+                const workDir = (service.isUiService || svcPath.endsWith('.jar')) ? dep.remoteDeployPath : svcPath
+                const cmd = `cd "${workDir}" && nohup ${service.startCommand} > "${logPath}" 2>&1 & sleep 1 && pgrep -f "${svcPath}"`
                 const launchResult = await execSSH(dep, cmd)
                 if (launchResult.exitCode === 0) {
                   result = { exitCode: 0, output: `Service launched (PID: ${launchResult.output.trim()})` }
@@ -238,17 +287,21 @@ export function useDeployRunner() {
     return status !== 'error'
   }
 
-  async function deployAll(deploymentId: string): Promise<void> {
+  async function deployAll(deploymentId: string, serviceIds?: string[]): Promise<void> {
     const deployment = await deploymentsStore.getPlaintextDeployment(deploymentId)
     if (!deployment) throw new Error(`Deployment ${deploymentId} not found`)
 
+    const services = serviceIds
+      ? deployment.services.filter(s => serviceIds.includes(s.id))
+      : deployment.services
+
     isDeploying.value = true
-    sessionStore.startSession(deploymentId, deployment.services)
+    sessionStore.startSession(deploymentId, services)
 
     try {
-      const total = GLOBAL_STEPS + deployment.services.length * SERVICE_STEPS
+      const total = GLOBAL_STEPS + services.length * SERVICE_STEPS
       for (let i = 0; i < total; i++) {
-        const ok = await runStep(deployment, i)
+        const ok = await runStep({ ...deployment, services }, i)
         if (!ok) break
       }
     } finally {

@@ -9,6 +9,7 @@ const ServiceSchema = z.object({
   localJarPath: z.string().min(1),
   startCommand: z.string(),
   stopCommand: z.string().optional(),
+  isUiService: z.boolean().optional(),
 })
 
 const DeploymentSchema = z.object({

@@ -50,6 +50,17 @@ function handleScroll(e: Event) {
 function copyOutput() {
   navigator.clipboard.writeText(props.content)
 }
+
+function scrollToBottom() {
+  if (terminalRef.value) {
+    terminalRef.value.scrollTop = terminalRef.value.scrollHeight
+  }
+}
+
+function toggleFollow() {
+  autoScroll.value = !autoScroll.value
+  if (autoScroll.value) scrollToBottom()
+}
 </script>
 
 <template>
@@ -68,7 +79,7 @@ function copyOutput() {
         <button 
           class="action-btn" 
           :class="{ active: autoScroll }" 
-          @click="autoScroll = !autoScroll"
+          @click="toggleFollow"
           title="Toggle auto-scroll"
         >
           ⬇ Follow
@@ -165,7 +176,9 @@ function copyOutput() {
 .terminal-body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px;
+  min-width: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--color-surface-3) transparent;
 }
@@ -187,6 +200,7 @@ function copyOutput() {
   font-size: 13px;
   line-height: 1.6;
   color: #a1a1aa;
+  max-width: 100%;
 }
 
 .terminal-cursor {

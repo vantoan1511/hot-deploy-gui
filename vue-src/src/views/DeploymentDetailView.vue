@@ -114,7 +114,10 @@ async function handleExport() {
             <h3 class="section-title">Services ({{ deployment.services.length }})</h3>
             <div class="services-list">
               <div v-for="svc in deployment.services" :key="svc.id" class="service-entry">
-                <div class="service-entry-name">{{ svc.name }}</div>
+                <div class="service-entry-name">
+                  {{ svc.name }}
+                  <span v-if="svc.isUiService" class="ui-badge">UI</span>
+                </div>
                 <dl class="field-list">
                   <div class="field-item">
                     <dt>Local JAR</dt>
@@ -348,6 +351,20 @@ code {
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--color-primary-500) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary-500) 40%, transparent);
+  color: var(--color-primary-500);
+  letter-spacing: 0.05em;
 }
 
 .not-found {

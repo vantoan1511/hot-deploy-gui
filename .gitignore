@@ -61,3 +61,5 @@ __screenshots__/
 .vscode/
 
 hot-deploy-export.json
+
+stable/

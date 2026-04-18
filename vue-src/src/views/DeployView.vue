@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDeploymentsStore } from '@/stores/deployments'
 import { useDeployRunner } from '@/composables/useDeployRunner'
@@ -7,6 +7,7 @@ import { useSessionStore } from '@/stores/session'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import StepList from '@/components/deploy/StepList.vue'
 import TerminalPanel from '@/components/deploy/TerminalPanel.vue'
+import ServiceSelectDialog from '@/components/ui/ServiceSelectDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,9 +28,21 @@ onMounted(async () => {
   }
 })
 
-async function handleDeployAll() {
+const showServiceSelect = ref(false)
+
+function handleDeployAll() {
+  if (!id || !deployment.value) return
+  if (deployment.value.services.length > 1) {
+    showServiceSelect.value = true
+  } else {
+    runner.deployAll(id)
+  }
+}
+
+async function handleServiceSelectConfirm(serviceIds: string[]) {
+  showServiceSelect.value = false
   if (!id) return
-  await runner.deployAll(id)
+  await runner.deployAll(id, serviceIds)
 }
 
 async function handleRunStep(stepIndex: number) {
@@ -94,6 +107,13 @@ async function handleRunStep(stepIndex: number) {
           />
         </main>
       </div>
+      <!-- Service Selection Dialog -->
+      <ServiceSelectDialog
+        v-if="showServiceSelect"
+        :services="deployment.services"
+        @confirm="handleServiceSelectConfirm"
+        @cancel="showServiceSelect = false"
+      />
     </template>
   </div>
 </template>
@@ -105,7 +125,7 @@ async function handleRunStep(stepIndex: number) {
   height: 100vh;
   padding: 32px;
   gap: 24px;
-  overflow: hidden;
+  overflow: auto;
 }
 
 /* ── Header ─────────────────────────────────────────────────── */
@@ -153,9 +173,10 @@ async function handleRunStep(stepIndex: number) {
 .cockpit-grid {
   display: grid;
   grid-template-columns: 280px 1fr;
+  grid-template-rows: 1fr;
   gap: 32px;
   flex: 1;
-  min-height: 0; /* Important for flex child scroll */
+  min-height: 0;
 }
 
 /* ── Sidebar ────────────────────────────────────────────────── */
@@ -206,9 +227,9 @@ async function handleRunStep(stepIndex: number) {
 
 /* ── Main Area ──────────────────────────────────────────────── */
 .terminal-area {
-  flex: 1;
   min-width: 0;
-  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .not-found {

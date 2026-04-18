@@ -44,10 +44,11 @@ type ServiceDraft = {
   localJarPath: string
   startCommand: string
   stopCommand: string
+  isUiService: boolean
 }
 
 const services = ref<ServiceDraft[]>([
-  { id: uuidv4(), name: '', localJarPath: '', startCommand: '', stopCommand: '' }
+  { id: uuidv4(), name: '', localJarPath: '', startCommand: '', stopCommand: '', isUiService: false }
 ])
 
 const errors = ref<Record<string, string>>({})
@@ -88,6 +89,10 @@ function validateServices(): boolean {
     const errs: Record<string, string> = {}
     if (!s.name.trim()) { errs.name = 'Service name is required'; valid = false }
     if (!s.localJarPath.trim()) { errs.localJarPath = 'JAR path is required'; valid = false }
+    else if (s.isUiService && !/[-_]SNAPSHOT\.[^.]+$/.test(s.localJarPath)) {
+      errs.localJarPath = 'UI service JAR filename must contain -SNAPSHOT (e.g. my-ui-1.0.0-SNAPSHOT.jar)'
+      valid = false
+    }
     return errs
   })
   return valid
@@ -118,6 +123,7 @@ onMounted(() => {
         localJarPath: s.localJarPath,
         startCommand: s.startCommand,
         stopCommand: s.stopCommand || '',
+        isUiService: s.isUiService ?? false,
       }))
       servicesErrors.value = d.services.map(() => ({}))
     }
@@ -140,7 +146,7 @@ async function pickJar(index: number) {
 }
 
 function addService() {
-  services.value.push({ id: uuidv4(), name: '', localJarPath: '', startCommand: '', stopCommand: '' })
+  services.value.push({ id: uuidv4(), name: '', localJarPath: '', startCommand: '', stopCommand: '', isUiService: false })
   servicesErrors.value.push({})
 }
 
@@ -217,6 +223,7 @@ function handleSubmit() {
     localJarPath: s.localJarPath.trim(),
     startCommand: s.startCommand.trim(),
     stopCommand: s.stopCommand.trim() || undefined,
+    isUiService: s.isUiService || undefined,
   }))
 
   emit('submit', {
@@ -376,14 +383,24 @@ function handleSubmit() {
         >
           <div class="service-card-header">
             <span class="service-index">Service {{ index + 1 }}</span>
-            <button
-              v-if="services.length > 1"
-              type="button"
-              class="remove-btn"
-              @click="removeService(index)"
-            >
-              Remove
-            </button>
+            <div class="service-card-header-right">
+              <button
+                type="button"
+                :class="['ui-toggle-btn', { active: svc.isUiService }]"
+                :title="svc.isUiService ? 'UI service: uploads and renames JAR only' : 'Enable UI service mode'"
+                @click="svc.isUiService = !svc.isUiService"
+              >
+                UI Service
+              </button>
+              <button
+                v-if="services.length > 1"
+                type="button"
+                class="remove-btn"
+                @click="removeService(index)"
+              >
+                Remove
+              </button>
+            </div>
           </div>
 
           <div class="service-card-fields">
@@ -393,16 +410,17 @@ function handleSubmit() {
               placeholder="e.g. auth-service"
               required
               :error="servicesErrors[index]?.name"
-              hint="Used for process identification and remote folder name"
+              :hint="svc.isUiService ? 'Display label for this UI artifact' : 'Used for process identification and remote folder name'"
             />
             <div class="field-with-action">
               <BaseInput
                 v-model="svc.localJarPath"
                 label="Local JAR Path"
-                placeholder="/local/builds/app.jar"
+                :placeholder="svc.isUiService ? '/local/builds/my-ui-1.0.0-SNAPSHOT.jar' : '/local/builds/app.jar'"
                 required
                 read-only
                 :error="servicesErrors[index]?.localJarPath"
+                :hint="svc.isUiService ? 'Must contain -SNAPSHOT; will be renamed on upload' : undefined"
                 class="flex-1"
               />
               <BaseButton size="sm" class="action-btn" @click="pickJar(index)">Browse</BaseButton>
@@ -410,8 +428,8 @@ function handleSubmit() {
             <BaseInput
               v-model="svc.startCommand"
               label="Start Command"
-              placeholder="java -jar app.jar"
-              hint="Command to start after extraction (empty = skip)"
+              :placeholder="svc.isUiService ? '(optional) command to restart UI server' : 'java -jar app.jar'"
+              :hint="svc.isUiService ? 'Optional restart command after JAR replacement' : 'Command to start after extraction (empty = skip)'"
             />
             <BaseInput
               v-model="svc.stopCommand"
@@ -549,12 +567,42 @@ function handleSubmit() {
   justify-content: space-between;
 }
 
+.service-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .service-index {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.ui-toggle-btn {
+  background: none;
+  border: 1px solid var(--color-surface-3);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: all 0.12s;
+  letter-spacing: 0.03em;
+}
+
+.ui-toggle-btn:hover {
+  border-color: var(--color-primary-500);
+  color: var(--color-primary-500);
+}
+
+.ui-toggle-btn.active {
+  background-color: color-mix(in srgb, var(--color-primary-500) 15%, transparent);
+  border-color: var(--color-primary-500);
+  color: var(--color-primary-500);
 }
 
 .remove-btn {

@@ -7,6 +7,7 @@ export interface Service {
   localJarPath: string    // Absolute local path to the .jar file
   startCommand: string    // Shell command to start (empty = skipped)
   stopCommand?: string    // Custom stop command (default: pkill -f <svcPath>)
+  isUiService?: boolean   // Upload-and-rename only; no service dir resolution or extraction
 }
 
 // ── Deployment Configuration ────────────────────────────────
