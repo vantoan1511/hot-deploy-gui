@@ -110,22 +110,27 @@ async function handleExport() {
             </dl>
           </section>
 
-          <section class="info-section">
-            <h3 class="section-title">Application</h3>
-            <dl class="field-list">
-              <div class="field-item">
-                <dt>Local JAR</dt>
-                <dd class="path">{{ deployment.localJarPath }}</dd>
+          <section class="info-section services-section">
+            <h3 class="section-title">Services ({{ deployment.services.length }})</h3>
+            <div class="services-list">
+              <div v-for="svc in deployment.services" :key="svc.id" class="service-entry">
+                <div class="service-entry-name">{{ svc.name }}</div>
+                <dl class="field-list">
+                  <div class="field-item">
+                    <dt>Local JAR</dt>
+                    <dd class="path">{{ svc.localJarPath }}</dd>
+                  </div>
+                  <div class="field-item">
+                    <dt>Start Command</dt>
+                    <dd class="code"><code>{{ svc.startCommand || '—' }}</code></dd>
+                  </div>
+                  <div v-if="svc.stopCommand" class="field-item">
+                    <dt>Stop Command</dt>
+                    <dd class="code"><code>{{ svc.stopCommand }}</code></dd>
+                  </div>
+                </dl>
               </div>
-              <div class="field-item">
-                <dt>Service Name</dt>
-                <dd>{{ deployment.serviceName }}</dd>
-              </div>
-              <div class="field-item">
-                <dt>Start Command</dt>
-                <dd class="code"><code>{{ deployment.startCommand || '—' }}</code></dd>
-              </div>
-            </dl>
+            </div>
           </section>
 
           <section class="info-section">
@@ -317,6 +322,32 @@ code {
   border-radius: 4px;
   font-family: 'Roboto Mono', monospace;
   font-size: 12px;
+}
+
+.services-section {
+  grid-column: 1 / -1;
+}
+
+.services-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.service-entry {
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-surface-3);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.service-entry-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
 }
 
 .not-found {

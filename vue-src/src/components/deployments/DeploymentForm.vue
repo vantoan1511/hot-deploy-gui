@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { z } from 'zod'
+import { v4 as uuidv4 } from 'uuid'
 import { useOpenDialog } from '@/composables/useFileDialog'
 import { execSSH } from '@/composables/useSSH'
 import { useSettingsStore } from '@/stores/settings'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import type { Deployment, AuthMethod } from '@/types/deployment'
+import type { Deployment, Service, AuthMethod } from '@/types/deployment'
 
 const props = defineProps<{
   initialData?: Deployment
@@ -31,16 +32,26 @@ const form = ref({
   privateKeyPath: '',
   password: '',
   sshPort: '22',
-  localJarPath: '',
   remoteDeployPath: '',
   remoteLogPath: '',
-  serviceName: '',
-  startCommand: '',
   tagsString: '',
   description: '',
 })
 
+type ServiceDraft = {
+  id: string
+  name: string
+  localJarPath: string
+  startCommand: string
+  stopCommand: string
+}
+
+const services = ref<ServiceDraft[]>([
+  { id: uuidv4(), name: '', localJarPath: '', startCommand: '', stopCommand: '' }
+])
+
 const errors = ref<Record<string, string>>({})
+const servicesErrors = ref<Array<Record<string, string>>>([{}])
 const testStatus = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
 const testMessage = ref('')
 
@@ -52,11 +63,8 @@ const schema = z.object({
   username: z.string().min(1, 'Username is required'),
   authMethod: z.enum(['key', 'password']),
   sshPort: z.number().int().min(1).max(65535),
-  localJarPath: z.string().min(1, 'Local JAR path is required'),
   remoteDeployPath: z.string().min(1, 'Remote deploy path is required'),
   remoteLogPath: z.string().min(1, 'Remote log path is required'),
-  serviceName: z.string().min(1, 'Service name is required'),
-  startCommand: z.string(),
   description: z.string().optional(),
   privateKeyPath: z.string().optional(),
   password: z.string().optional(),
@@ -74,6 +82,17 @@ const schema = z.object({
   path: ['password'],
 })
 
+function validateServices(): boolean {
+  let valid = true
+  servicesErrors.value = services.value.map(s => {
+    const errs: Record<string, string> = {}
+    if (!s.name.trim()) { errs.name = 'Service name is required'; valid = false }
+    if (!s.localJarPath.trim()) { errs.localJarPath = 'JAR path is required'; valid = false }
+    return errs
+  })
+  return valid
+}
+
 // ── Lifecycle ────────────────────────────────────────────────
 
 onMounted(() => {
@@ -87,13 +106,20 @@ onMounted(() => {
       privateKeyPath: d.privateKeyPath || '',
       password: d.password || '',
       sshPort: String(d.sshPort),
-      localJarPath: d.localJarPath,
       remoteDeployPath: d.remoteDeployPath,
       remoteLogPath: d.remoteLogPath,
-      serviceName: d.serviceName,
-      startCommand: d.startCommand,
       tagsString: d.tags.join(', '),
       description: d.description || '',
+    }
+    if (d.services.length > 0) {
+      services.value = d.services.map(s => ({
+        id: s.id,
+        name: s.name,
+        localJarPath: s.localJarPath,
+        startCommand: s.startCommand,
+        stopCommand: s.stopCommand || '',
+      }))
+      servicesErrors.value = d.services.map(() => ({}))
     }
   }
 })
@@ -101,18 +127,27 @@ onMounted(() => {
 // ── Actions ──────────────────────────────────────────────────
 
 async function pickPrivateKey() {
-  const path = await useOpenDialog({
-    title: 'Select SSH Private Key',
-  })
+  const path = await useOpenDialog({ title: 'Select SSH Private Key' })
   if (path) form.value.privateKeyPath = path
 }
 
-async function pickJar() {
+async function pickJar(index: number) {
   const path = await useOpenDialog({
     title: 'Select JAR File',
     filters: [{ name: 'JAR Files', extensions: ['jar'] }]
   })
-  if (path) form.value.localJarPath = path
+  if (path && services.value[index]) services.value[index]!.localJarPath = path
+}
+
+function addService() {
+  services.value.push({ id: uuidv4(), name: '', localJarPath: '', startCommand: '', stopCommand: '' })
+  servicesErrors.value.push({})
+}
+
+function removeService(index: number) {
+  if (services.value.length <= 1) return
+  services.value.splice(index, 1)
+  servicesErrors.value.splice(index, 1)
 }
 
 async function handleTestConnection() {
@@ -120,27 +155,22 @@ async function handleTestConnection() {
   testStatus.value = 'loading'
   testMessage.value = ''
 
-  const result = schema.safeParse({
-    ...form.value,
-    sshPort: Number(form.value.sshPort)
-  })
+  const result = schema.safeParse({ ...form.value, sshPort: Number(form.value.sshPort) })
 
   if (!result.success) {
     result.error.issues.forEach((issue) => {
       const path = issue.path[0]
-      if (typeof path === 'string') {
-        errors.value[path] = issue.message
-      }
+      if (typeof path === 'string') errors.value[path] = issue.message
     })
     testStatus.value = 'error'
     testMessage.value = 'Please fix validation errors first.'
     return
   }
 
-  // Construct a temporary deployment object for testing
   const tempDeployment: Deployment = {
     id: 'test',
     ...result.data,
+    services: [],
     tags: [],
     createdAt: '',
     updatedAt: '',
@@ -163,31 +193,37 @@ async function handleTestConnection() {
 
 function handleSubmit() {
   errors.value = {}
-  
-  const result = schema.safeParse({
-    ...form.value,
-    sshPort: Number(form.value.sshPort)
-  })
+
+  const result = schema.safeParse({ ...form.value, sshPort: Number(form.value.sshPort) })
 
   if (!result.success) {
     result.error.issues.forEach((issue) => {
       const path = issue.path[0]
-      if (typeof path === 'string') {
-        errors.value[path] = issue.message
-      }
+      if (typeof path === 'string') errors.value[path] = issue.message
     })
     return
   }
+
+  if (!validateServices()) return
 
   const tags = form.value.tagsString
     .split(/[ ,]+/)
     .map(t => t.trim())
     .filter(t => t.length > 0)
 
+  const mappedServices: Service[] = services.value.map(s => ({
+    id: s.id,
+    name: s.name.trim(),
+    localJarPath: s.localJarPath.trim(),
+    startCommand: s.startCommand.trim(),
+    stopCommand: s.stopCommand.trim() || undefined,
+  }))
+
   emit('submit', {
     ...result.data,
+    services: mappedServices,
     tags,
-    description: form.value.description
+    description: form.value.description,
   })
 }
 </script>
@@ -252,7 +288,7 @@ function handleSubmit() {
             required
             :error="errors.username"
           />
-          
+
           <div class="input-field">
             <label class="input-label">Authentication Method</label>
             <div class="auth-toggle">
@@ -272,10 +308,7 @@ function handleSubmit() {
               </button>
             </div>
             <p v-if="form.authMethod === 'password' && !settingsStore.sshpassAvailable && !settingsStore.plinkAvailable" class="info-msg">
-              ℹ️ Using built-in OpenSSH with SSH_ASKPASS. For best compatibility, install PuTTY (plink) on Windows or sshpass on Linux.
-            </p>
-            <p v-else-if="form.authMethod === 'password' && !settingsStore.sshpassAvailable && settingsStore.plinkAvailable" class="info-msg">
-              ℹ️ Using plink (PuTTY) for password authentication.
+              ℹ️ Using built-in OpenSSH with SSH_ASKPASS.
             </p>
           </div>
 
@@ -304,34 +337,7 @@ function handleSubmit() {
         </div>
       </div>
 
-      <!-- Section: Application -->
-      <div class="form-section">
-        <h3 class="section-title">Application Details</h3>
-        <div class="section-content">
-          <div class="field-with-action">
-            <BaseInput
-              v-model="form.localJarPath"
-              label="Local JAR Path"
-              placeholder="/local/builds/app.jar"
-              required
-              read-only
-              :error="errors.localJarPath"
-              class="flex-1"
-            />
-            <BaseButton size="sm" class="action-btn" @click="pickJar">Browse</BaseButton>
-          </div>
-          <BaseInput
-            v-model="form.serviceName"
-            label="Service Name"
-            placeholder="e.g. auth-service"
-            required
-            :error="errors.serviceName"
-            hint="Used for process identification and remote folder name"
-          />
-        </div>
-      </div>
-
-      <!-- Section: Remote Paths -->
+      <!-- Section: Remote Environment -->
       <div class="form-section">
         <h3 class="section-title">Remote Environment</h3>
         <div class="section-content">
@@ -349,13 +355,71 @@ function handleSubmit() {
             required
             :error="errors.remoteLogPath"
           />
-          <BaseInput
-            v-model="form.startCommand"
-            label="Start Command"
-            placeholder="java -jar app.jar"
-            :error="errors.startCommand"
-            hint="Command to start the service after extraction"
-          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Section: Services (full-width) -->
+    <div class="form-section services-section">
+      <div class="services-header">
+        <h3 class="section-title">Services</h3>
+        <BaseButton type="button" variant="secondary" size="sm" @click="addService">
+          + Add Service
+        </BaseButton>
+      </div>
+
+      <div class="services-list">
+        <div
+          v-for="(svc, index) in services"
+          :key="svc.id"
+          class="service-card"
+        >
+          <div class="service-card-header">
+            <span class="service-index">Service {{ index + 1 }}</span>
+            <button
+              v-if="services.length > 1"
+              type="button"
+              class="remove-btn"
+              @click="removeService(index)"
+            >
+              Remove
+            </button>
+          </div>
+
+          <div class="service-card-fields">
+            <BaseInput
+              v-model="svc.name"
+              label="Service Name"
+              placeholder="e.g. auth-service"
+              required
+              :error="servicesErrors[index]?.name"
+              hint="Used for process identification and remote folder name"
+            />
+            <div class="field-with-action">
+              <BaseInput
+                v-model="svc.localJarPath"
+                label="Local JAR Path"
+                placeholder="/local/builds/app.jar"
+                required
+                read-only
+                :error="servicesErrors[index]?.localJarPath"
+                class="flex-1"
+              />
+              <BaseButton size="sm" class="action-btn" @click="pickJar(index)">Browse</BaseButton>
+            </div>
+            <BaseInput
+              v-model="svc.startCommand"
+              label="Start Command"
+              placeholder="java -jar app.jar"
+              hint="Command to start after extraction (empty = skip)"
+            />
+            <BaseInput
+              v-model="svc.stopCommand"
+              label="Stop Command"
+              placeholder="(optional) e.g. systemctl stop auth-service"
+              hint="Custom stop command; default uses pkill"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -442,6 +506,85 @@ function handleSubmit() {
 .action-btn {
   margin-bottom: 2px;
 }
+
+/* ── Services Section ────────────────────────────────────── */
+
+.services-section {
+  border-top: 1px solid var(--color-surface-3);
+  padding-top: 8px;
+}
+
+.services-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-surface-3);
+}
+
+.services-header .section-title {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.services-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.service-card {
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-surface-3);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.service-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.service-index {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: var(--color-error);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: background-color 0.12s;
+}
+
+.remove-btn:hover {
+  background-color: color-mix(in srgb, var(--color-error) 10%, transparent);
+}
+
+.service-card-fields {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .service-card-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Form Actions ─────────────────────────────────────────── */
 
 .form-actions {
   display: flex;
@@ -535,12 +678,6 @@ function handleSubmit() {
 
 .toggle-btn:hover:not(.active) {
   color: var(--color-text-primary);
-}
-
-.warning-msg {
-  font-size: 11px;
-  color: var(--color-warning);
-  margin: 4px 0 0;
 }
 
 .info-msg {

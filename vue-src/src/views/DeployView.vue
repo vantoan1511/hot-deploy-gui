@@ -17,9 +17,13 @@ const runner = useDeployRunner()
 const id = route.params.id as string
 const deployment = computed(() => deploymentsStore.getById(id))
 
-onMounted(() => {
-  if (id) {
-    sessionStore.startSession(id)
+onMounted(async () => {
+  if (!id) return
+  if (deploymentsStore.deployments.length === 0) {
+    await deploymentsStore.load()
+  }
+  if (deployment.value) {
+    sessionStore.startSession(id, deployment.value.services)
   }
 })
 

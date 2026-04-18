@@ -1,11 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { DeploySession, StepResult, StepStatus } from '@/types/deployment'
+import type { DeploySession, StepResult, StepStatus, Service } from '@/types/deployment'
 
-const TOTAL_STEPS = 7
+export const GLOBAL_STEPS = 2
+export const SERVICE_STEPS = 6
 
-function createInitialSteps(): StepResult[] {
-  return Array.from({ length: TOTAL_STEPS }, (_, i): StepResult => ({
+function totalSteps(servicesCount: number): number {
+  return GLOBAL_STEPS + servicesCount * SERVICE_STEPS
+}
+
+function createInitialSteps(count: number): StepResult[] {
+  return Array.from({ length: count }, (_, i): StepResult => ({
     stepIndex: i,
     status: 'idle' as StepStatus,
     startedAt: null,
@@ -53,35 +58,36 @@ export const useSessionStore = defineStore('session', () => {
   const canStartStep = (index: number) => computed(() => {
     if (!session.value) return false
     if (isRunning.value) return false
-    // All steps before must be success (or warning for steps 5-6)
     return session.value.steps.slice(0, index).every(
       s => s.status === 'success' || s.status === 'warning' || s.status === 'skipped'
     )
   })
 
-  // ── Actions ──────────────────────────────────────────────
+  // ── Resolved path accessors ──────────────────────────────
   const resolvedDeployPath = computed(() => session.value?.resolvedDeployPath ?? null)
-  const resolvedSvcPath = computed(() => session.value?.resolvedSvcPath ?? null)
+  const resolvedSvcPaths = computed(() => session.value?.resolvedSvcPaths ?? {})
 
   function setResolvedDeployPath(path: string): void {
     if (!session.value) return
     session.value.resolvedDeployPath = path
   }
 
-  function setResolvedSvcPath(path: string): void {
+  function setResolvedSvcPath(serviceId: string, path: string): void {
     if (!session.value) return
-    session.value.resolvedSvcPath = path
+    session.value.resolvedSvcPaths[serviceId] = path
   }
 
-  function startSession(deploymentId: string): void {
+  // ── Actions ──────────────────────────────────────────────
+  function startSession(deploymentId: string, services: Service[]): void {
     session.value = {
       deploymentId,
       startedAt: Date.now(),
-      steps: createInitialSteps(),
+      steps: createInitialSteps(totalSteps(services.length)),
       isRunning: false,
       currentStepIndex: -1,
       resolvedDeployPath: null,
-      resolvedSvcPath: null,
+      resolvedSvcPaths: {},
+      services,
     }
   }
 
@@ -132,8 +138,8 @@ export const useSessionStore = defineStore('session', () => {
     stepResult,
     canStartStep,
     resolvedDeployPath,
+    resolvedSvcPaths,
     setResolvedDeployPath,
-    resolvedSvcPath,
     setResolvedSvcPath,
     startSession,
     markStepRunning,

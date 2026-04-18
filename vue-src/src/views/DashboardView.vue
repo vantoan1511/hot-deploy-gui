@@ -26,7 +26,7 @@ const filtered = computed(() => {
     d.name.toLowerCase().includes(q) ||
     d.host.toLowerCase().includes(q) ||
     d.username.toLowerCase().includes(q) ||
-    d.serviceName.toLowerCase().includes(q) ||
+    d.services.some(s => s.name.toLowerCase().includes(q)) ||
     d.tags.some(t => t.toLowerCase().includes(q))
   )
 })
@@ -110,11 +110,16 @@ async function handleImport() {
     if (!path) return
 
     const raw = await filesystem.readFile(path)
-    const { deployments, errors } = parseImport(raw)
+    const { deployments, errors, converted } = parseImport(raw)
 
     if (errors.length > 0) {
       showFeedback('error', `Invalid file: ${errors[0]}`)
       return
+    }
+
+    if (converted) {
+      showFeedback('success', `Legacy format detected — converted ${converted} deployment(s) to multi-service format.`)
+      await new Promise(r => setTimeout(r, 1800))
     }
 
     const collisions = deployments

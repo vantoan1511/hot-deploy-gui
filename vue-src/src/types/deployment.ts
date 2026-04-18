@@ -1,3 +1,14 @@
+// ── Service ─────────────────────────────────────────────────
+// One deployable unit within a Deployment configuration
+
+export interface Service {
+  id: string              // UUID v4
+  name: string            // Service folder name and process identifier
+  localJarPath: string    // Absolute local path to the .jar file
+  startCommand: string    // Shell command to start (empty = skipped)
+  stopCommand?: string    // Custom stop command (default: pkill -f <svcPath>)
+}
+
 // ── Deployment Configuration ────────────────────────────────
 // Core data entity as defined in SPEC.md §2.1
 
@@ -12,11 +23,9 @@ export interface Deployment {
   privateKeyPath?: string  // Absolute local path to SSH private key
   password?: string        // Encrypted SSH password
   sshPort: number          // Default: 22
-  localJarPath: string     // Absolute local path to the .jar file
   remoteDeployPath: string // Absolute remote base path (supports wildcards)
   remoteLogPath: string    // Absolute remote log directory
-  serviceName: string      // Drives folder name and process identification
-  startCommand: string     // Shell command to start service (nohup-wrapped)
+  services: Service[]      // One or more services to deploy
   createdAt: string        // ISO 8601
   updatedAt: string        // ISO 8601
   tags: string[]
@@ -50,8 +59,9 @@ export interface DeploySession {
   steps: StepResult[]
   isRunning: boolean
   currentStepIndex: number
-  resolvedDeployPath: string | null  // wildcard expanded at runtime
-  resolvedSvcPath: string | null     // versioned service dir resolved at runtime
+  resolvedDeployPath: string | null          // wildcard expanded at runtime
+  resolvedSvcPaths: Record<string, string>   // serviceId → resolved remote path
+  services: Service[]                        // snapshot of services at session start
 }
 
 // ── Import / Export ─────────────────────────────────────────

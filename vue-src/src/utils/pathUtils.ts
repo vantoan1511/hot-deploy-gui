@@ -1,25 +1,17 @@
-import type { Deployment } from '@/types/deployment'
+import type { Service } from '@/types/deployment'
 
 /**
- * Derived path: remoteDeployPath + '/' + serviceName
- * e.g. /opt/my-app/temp/services/my-service
- */
-export function remoteServicePath(d: Deployment): string {
-  return `${d.remoteDeployPath.replace(/\/$/, '')}/${d.serviceName}`
-}
-
-/**
- * Basename of the local JAR file.
+ * Basename of the local JAR file for a service.
  * e.g. 'auth-service-1.0.0.jar'
  */
-export function remoteJarFilename(d: Deployment): string {
-  return d.localJarPath.split(/[/\\]/).pop() ?? d.localJarPath
+export function remoteJarFilename(service: Service): string {
+  return service.localJarPath.split(/[/\\]/).pop() ?? service.localJarPath
 }
 
 /**
  * Derived log path: remoteLogPath + '/' + serviceName + '.log'
  * e.g. /opt/my-app/logs/my-service.log
  */
-export function remoteServiceLogPath(d: Deployment): string {
-  return `${d.remoteLogPath.replace(/\/$/, '')}/${d.serviceName}.log`
+export function remoteServiceLogPath(remoteLogPath: string, serviceName: string): string {
+  return `${remoteLogPath.replace(/\/$/, '')}/${serviceName}.log`
 }

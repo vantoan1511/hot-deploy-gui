@@ -59,7 +59,7 @@ function closeMenu() {
 
     <!-- Host + path summary -->
     <p class="card-host">{{ deployment.username }}@{{ deployment.host }}:{{ deployment.sshPort }}</p>
-    <p class="card-path">{{ deployment.remoteDeployPath }}/{{ deployment.serviceName }}</p>
+    <p class="card-path">{{ deployment.remoteDeployPath }} · {{ deployment.services.length }} service{{ deployment.services.length !== 1 ? 's' : '' }}</p>
 
     <!-- Footer row -->
     <div class="card-footer">
