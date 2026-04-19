@@ -1,217 +1,107 @@
 # Hot Deploy GUI
 
-A cross-platform desktop application for managing and executing Java service deployments to remote servers over SSH. Built with NeutralinoJS, Vue 3, and TypeScript.
+A cross-platform desktop application for managing and executing Java service deployments and remote server controls over SSH. Built with NeutralinoJS, Vue 3, and Tailwind CSS.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
-## Features
+## 🌟 Key Features
 
-- **Saved deployment profiles** — store SSH credentials, remote paths, and service metadata locally with encrypted passwords
-- **Multi-service deployments** — deploy multiple JARs in a single workflow with per-service configuration
-- **Step-by-step workflow** — run the full deploy pipeline automatically or execute individual steps manually
-- **Live terminal output** — ANSI-colored streaming output for every deployment step
-- **Wildcard path resolution** — `remoteDeployPath` supports glob patterns resolved at runtime
-- **Import / Export** — serialize and share deployment configs as JSON
-- **Flexible SSH auth** — SSH key, `sshpass`, PuTTY `plink`, or `SSH_ASKPASS` fallback
+### 🚀 Deployments (Classic)
+- **Saved Profiles**: Store SSH credentials, remote paths, and service metadata locally with encrypted passwords.
+- **Multi-service Orchestration**: Deploy multiple JARs in a single workflow with per-service configuration.
+- **Step-by-step Execution**: Run the full pipeline automatically or execute individual steps manually.
+- **Live Terminal Output**: Real-time ANSI-colored streaming output for every deployment stage.
 
-## Tech Stack
+### 🛡️ Server Controls & Hot Deploy
+- **Service Management**: Monitor and control services on target servers with dedicated override settings.
+- **Advanced Hot Deploy**: Execute custom **Pre-commands** and **Post-commands** hooks around your deployment.
+- **Remote Fetch (wget)**: Deploy directly from remote URLs; the server fetches the package via `wget`, bypassing local upload.
+- **Safe Replacement**: Atomic "Transfer → Cleanup → Rename" logic ensure clean replacement of existing artifacts.
+
+### ⚙️ Core Capabilities
+- **Wildcard Path Resolution**: Support for glob patterns in deployment paths, resolved to the newest match at runtime.
+- **Unified Import/Export**: Backup and share complete configurations (Deployments + Controls) as JSON with ID collision resolution.
+- **Flexible SSH Auth**: Native support for SSH keys, `sshpass`, PuTTY `plink`, or `SSH_ASKPASS` fallbacks.
+
+## 🛠️ Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Desktop runtime | [NeutralinoJS](https://neutralino.js.org/) v6.5 |
-| Frontend framework | Vue 3 + TypeScript |
-| State management | Pinia |
-| Styling | Tailwind CSS v4 |
-| Build tool | Vite 8 |
-| Schema validation | Zod |
-| Terminal rendering | ansi-to-html |
+| Runtime | [NeutralinoJS](https://neutralino.js.org/) v6.5 |
+| UI Framework | Vue 3 + TypeScript |
+| Store | Pinia |
+| CSS | Tailwind CSS v4 |
+| Validation | Zod |
+| Rendering | `ansi-to-html` (XTerm-style parsing) |
 
-## Quick Start
+## 🚀 Quick Start
 
-> Already have Node.js and NeutralinoJS CLI installed? Get running in three steps.
+If you have Node.js and NeutralinoJS CLI installed:
 
 ```bash
-# 1. Install frontend dependencies
+# 1. Install dependencies
 cd src && npm install
 
-# 2. Start the Vite dev server (keep this terminal open)
+# 2. Start Vite (keep this open)
 npm run dev
 
-# 3. Launch the desktop app (new terminal, from project root)
+# 3. Launch the app (from project root)
 neu run
 ```
 
-The app opens at 1280×800. Any code change in `src/src/` hot-reloads instantly.
+---
+
+## 📖 Usage Guide
+
+### 1. Classic Deployments
+Ideal for complex, multi-component applications.
+1. Click **+ New Deployment** on the dashboard.
+2. Define your SSH connection and root deployment paths.
+3. Add services, identifying their local JAR paths and start/stop commands.
+4. Run the **⚡ Start Full Deployment** pipeline.
+
+### 2. Server Controls & Hot Deploy
+Ideal for rapid, targeted updates to single-package applications.
+1. Navigate to **Controls** and add a new Server Control.
+2. Configure **Hot Deploy Settings**:
+   - **Local Package OR URL**: Path to your `.jar`/`.tgz` or a `http://` download link.
+   - **Hooks**: Define sequential Pre and Post commands (e.g., `systemctl stop`, `ls -la`, etc.).
+3. Use the **🚀 Deploy Package** button in the Control details view to trigger the sequence.
+
+### 3. Backup & Sharing
+Use the **Import** and **Export All** buttons on either management page to backup your workspace.
+- **ID Collisions**: On import, you can choose to **Replace**, **Keep Both** (import as copy), or **Skip** conflicting entries.
+- **Security**: Passwords are encrypted locally but omitted from exported JSON bundles by default for safety.
 
 ---
 
-## Prerequisites
+## ⚡ Deployment Logic
 
-- Node.js 20.19+ or 22.12+
-- [NeutralinoJS CLI](https://neutralino.js.org/docs/cli/neu-cli) (`npm i -g @neutralinojs/neu`)
-- OpenSSH (or PuTTY on Windows) available on `PATH`
-- `sshpass` installed for password-based authentication (optional — app falls back to SSH_ASKPASS)
+The app implements two distinct workflows:
 
-## Getting Started
+### Deployment Pipeline (Deployments)
+`Test Connection` → `Validate Path` → `Resolve Dir` → `Upload` → `Extract/Replace` → `Verify` → `Stop/Start`.
 
-### Development
-
-```bash
-# Install frontend dependencies
-cd src
-npm install
-
-# Start the Vite dev server
-npm run dev
-
-# In a separate terminal, launch NeutralinoJS (from project root)
-neu run
-```
-
-The app connects to the Vite dev server at `http://localhost:5173` with hot module replacement.
-
-### Build
-
-```bash
-# Build the Vue SPA
-cd src
-npm run build
-
-# Package the desktop app
-cd ..
-neu build
-```
-
-Output binaries are placed in `dist/` for each target platform.
-
-## Usage
-
-### 1. Create a Deployment
-
-Click **+ New Deployment** on the dashboard and fill in the form:
-
-**Connection**
-
-| Field | Description |
-|-------|-------------|
-| Name | A human-readable label, e.g. `Production — Auth Service` |
-| Host | Remote hostname or IP address |
-| Username | SSH login username |
-| Port | SSH port (default `22`) |
-| Auth Method | `SSH Key` (path to private key) or `Password` (stored encrypted) |
-
-**Remote Environment**
-
-| Field | Description |
-|-------|-------------|
-| Deploy Path | Remote directory where artifacts are uploaded. Supports glob patterns, e.g. `/opt/app/temp/services*` — resolved to the newest matching directory at runtime |
-| Log Path | Path to the service log file, used for tailing after launch |
-
-**Services**
-
-Add one or more services. Each service has:
-
-| Field | Description |
-|-------|-------------|
-| Name | Service name; also used to locate the service directory on the remote host (glob-aware) |
-| Local JAR | Absolute local path to the built `.jar` artifact |
-| Start Command | Shell command to launch the service, e.g. `systemctl start my-service` |
-| Stop Command | Optional override; defaults to `pkill -f <service-name>` |
-| UI Service | Enable for single-JAR replacement (no extraction, no service directory resolution) |
+### Hot Deploy Sequence (Controls)
+`Transfer (.tmp)` → `Cleanup (rm)` → `Finalize (mv)` → `Run Pre-Commands` → `Run Post-Commands`.
 
 ---
 
-### 2. Run a Deployment
-
-Open a deployment and click **Deploy →** to enter the deployment engine.
-
-**Full deployment (recommended)**
-
-Click **⚡ Start Full Deployment**. All steps run automatically in sequence. The pipeline halts on the first error and highlights the failing step.
-
-**Step-by-step**
-
-Each step has an individual **Run** button. Steps are gated — a step cannot run until all prior steps have succeeded. Use this mode to re-run a single step after fixing an issue without repeating the whole pipeline.
-
-**Terminal output**
-
-The right-hand panel streams ANSI-colored stdout/stderr for every step. Use the toolbar buttons to:
-- **Copy** — copy the full log to clipboard
-- **Follow** — jump to the bottom and re-enable auto-scroll (auto-scroll pauses when you scroll up)
-
----
-
-### 3. Manage Deployments
-
-**Clone** — duplicate an existing deployment with a new UUID; useful for creating environment variants (staging vs. production).
-
-**Edit** — reopen the form pre-populated with all saved values.
-
-**Delete** — permanently removes the configuration after a confirmation prompt.
-
-**Export** — saves the deployment to a `.json` file. Passwords are omitted from the export by default.
-
-**Import** — load a `.json` file exported from another machine. On UUID collision you can choose to:
-- **Replace** the existing configuration
-- **Keep both** (the import is renamed and assigned a new UUID)
-- **Skip** the conflicting entry
-
----
-
-### 4. Settings
-
-Open **Settings** from the sidebar to configure:
-
-- **Default SSH Port** — pre-filled value when creating new deployments
-- **sshpass available** — toggle to indicate `sshpass` is on `PATH`; affects which password-auth backend is used
-
----
-
-## Deployment Workflow
-
-Each deployment runs a deterministic sequence of steps:
-
-| # | Step | Description |
-|---|------|-------------|
-| 1 | Test Connection | Verify SSH connectivity |
-| 2 | Validate Remote Path | Confirm the deploy directory exists (wildcard-aware) |
-| 3 | Resolve Service Dir | Locate the service directory on the remote host |
-| 4 | Upload Archive | SCP the local JAR to the deploy path |
-| 5 | Extract Files | Extract the JAR or replace the existing remote JAR |
-| 6 | Verify Running Instance | Show running PIDs (warns if none found) |
-| 7 | Stop Existing Service | Kill running processes using the configured stop command |
-| 8 | Launch Service | Run the start command and verify the new PID |
-
-Steps 3–8 repeat for each service in the deployment. You can run the full pipeline with one click or trigger each step individually.
-
-## Configuration
-
-The app stores all data locally via NeutralinoJS storage:
-
-- **Windows:** `%APPDATA%\hot-deploy-gui\`
-- **macOS / Linux:** `~/.config/hot-deploy-gui/`
-
-Passwords are encrypted at rest using AES-GCM 256 with a machine-specific key derived via PBKDF2.
-
-See [`SPEC.md`](SPEC.md) for the full technical specification.
-
-## Project Structure
+## 📂 Project Structure
 
 ```
 hot-deploy-gui/
-├── neutralino.config.json   # Desktop app config (window size, API allowlist)
+├── neutralino.config.json   # App metadata & API allowlist
 ├── src/
 │   ├── src/
-│   │   ├── stores/          # Pinia state (deployments, session, settings)
-│   │   ├── views/           # Page-level components
-│   │   ├── components/      # Reusable UI components
-│   │   ├── composables/     # useSSH, useDeployRunner, useFileDialog
-│   │   └── utils/           # crypto, exportImport, pathUtils
-│   └── dist/                # Vue build output (served by NeutralinoJS)
-└── SPEC.md
+│   │   ├── stores/          # deployments, controls, session
+│   │   ├── composables/     # useSSH, useDeployRunner, useControlRunner
+│   │   ├── utils/           # crypto, pathUtils, exportImport
+│   │   └── views/           # Dashboard, Controls, Settings
+└── SPEC.md                  # Full technical specification
 ```
 
-## License
+## 📜 License
 
 [MIT](LICENSE)
