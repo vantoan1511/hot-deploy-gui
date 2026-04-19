@@ -21,7 +21,7 @@
       "minWidth": 900,
       "minHeight": 600,
       "icon": "/src/public/favicon.ico",
-      "enableInspector": true
+      "enableInspector": false
     }
   },
   "cli": {
