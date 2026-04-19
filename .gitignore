@@ -63,3 +63,7 @@ __screenshots__/
 hot-deploy-export.json
 
 stable/
+
+.claude/
+
+.github/FUNDING.yml
