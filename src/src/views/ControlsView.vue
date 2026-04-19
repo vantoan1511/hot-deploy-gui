@@ -24,6 +24,29 @@ const filtered = computed(() => {
 onMounted(async () => {
   await store.load()
 })
+
+async function handleClone(id: string) {
+  try {
+    const newControl = await store.clone(id)
+    // Optional: Navigate to edit or detail of the new one
+    // router.push(`/controls/${newControl.id}/edit`)
+  } catch (err) {
+    alert(`Failed to clone: ${err}`)
+  }
+}
+
+async function handleDelete(id: string) {
+  const control = store.getById(id)
+  if (!control) return
+
+  if (confirm(`Are you sure you want to delete "${control.name}"? This action cannot be undone.`)) {
+    try {
+      await store.remove(id)
+    } catch (err) {
+      alert(`Failed to delete: ${err}`)
+    }
+  }
+}
 </script>
 
 <template>
@@ -82,6 +105,8 @@ onMounted(async () => {
           v-for="c in filtered"
           :key="c.id"
           :control="c"
+          @clone="handleClone"
+          @delete="handleDelete"
         />
       </div>
     </main>

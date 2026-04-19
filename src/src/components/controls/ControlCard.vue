@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { ControlConnection } from '@/types/deployment'
 import TagBadge from '@/components/ui/TagBadge.vue'
@@ -14,9 +15,31 @@ const emit = defineEmits<{
 }>()
 
 const router = useRouter()
+const menuOpen = ref(false)
 
 function handleClick() {
   router.push(`/controls/${props.control.id}`)
+}
+
+function toggleMenu(e: MouseEvent) {
+  e.stopPropagation()
+  menuOpen.value = !menuOpen.value
+}
+
+function closeMenu() {
+  menuOpen.value = false
+}
+
+function handleClone(e: Event) {
+  e.stopPropagation()
+  emit('clone', props.control.id)
+  closeMenu()
+}
+
+function handleDelete(e: Event) {
+  e.stopPropagation()
+  emit('delete', props.control.id)
+  closeMenu()
 }
 </script>
 
@@ -30,9 +53,18 @@ function handleClick() {
         </div>
       </div>
       
-      <!-- Context Menu Placeholder -->
-      <div class="menu-trigger" @click.stop>
-        <button class="icon-btn">⋯</button>
+      <!-- Context Actions -->
+      <div class="card-menu-box">
+        <button class="icon-btn" title="More Actions" @click="toggleMenu">⋯</button>
+        <div v-if="menuOpen" v-click-outside="closeMenu" class="card-dropdown">
+          <button class="dropdown-item" @click="handleClone">
+            <span class="icon">📋</span> Clone Control
+          </button>
+          <div class="divider"></div>
+          <button class="dropdown-item delete" @click="handleDelete">
+            <span class="icon">🗑️</span> Delete Control
+          </button>
+        </div>
       </div>
     </div>
 
@@ -166,10 +198,74 @@ function handleClick() {
   cursor: pointer;
   padding: 0 4px;
   border-radius: 4px;
+  transition: background-color 0.12s;
 }
 
 .icon-btn:hover {
   background-color: var(--color-surface-2);
   color: var(--color-text-primary);
+}
+
+/* ── Dropdown ────────────────────────────────────────────── */
+
+.card-menu-box {
+  position: relative;
+}
+
+.card-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-surface-3);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+  min-width: 140px;
+  animation: pop-in 0.12s ease;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.dropdown-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.1s;
+  text-align: left;
+}
+
+.dropdown-item:hover {
+  background-color: var(--color-surface-3);
+  color: var(--color-text-primary);
+}
+
+.dropdown-item.delete:hover {
+  color: var(--color-error);
+  background-color: color-mix(in srgb, var(--color-error) 10%, transparent);
+}
+
+.dropdown-item .icon {
+  font-size: 14px;
+}
+
+.divider {
+  height: 1px;
+  background-color: var(--color-surface-3);
+  margin: 4px 0;
 }
 </style>

@@ -61,6 +61,21 @@ const schema = z.object({
   privateKeyPath: z.string().optional(),
   password: z.string().optional(),
 }).refine((data) => {
+  if (data.authMethod === 'password') return !!data.password
+  return true
+}, {
+  message: 'Password is required for password authentication',
+  path: ['password'],
+})
+
+const connectionSchema = z.object({
+  host: z.string().min(1, 'Host is required'),
+  username: z.string().min(1, 'Username is required'),
+  authMethod: z.enum(['key', 'password']),
+  sshPort: z.number().int().min(1).max(65535),
+  privateKeyPath: z.string().optional(),
+  password: z.string().optional(),
+}).refine((data) => {
   if (data.authMethod === 'key') return !!data.privateKeyPath
   return true
 }, {
@@ -106,15 +121,12 @@ async function pickPrivateKey() {
 }
 
 async function handleTestConnection() {
-  errors.value = {}
   testStatus.value = 'loading'
   testMessage.value = ''
 
-  const result = schema.safeParse({ 
+  const result = connectionSchema.safeParse({ 
     ...form.value, 
     sshPort: Number(form.value.sshPort),
-    applicationHttpPort: form.value.applicationHttpPort ? Number(form.value.applicationHttpPort) : undefined,
-    applicationHttpsPort: form.value.applicationHttpsPort ? Number(form.value.applicationHttpsPort) : undefined,
   })
 
   if (!result.success) {
@@ -127,11 +139,8 @@ async function handleTestConnection() {
     return
   }
 
-  // Create a minimal connection object for testing
-  const tempConn: any = { ...result.data }
-
   try {
-    const res = await execSSH(tempConn, 'echo ok')
+    const res = await execSSH(result.data, 'echo ok')
     if (res.exitCode === 0 && res.output.includes('ok')) {
       testStatus.value = 'success'
       testMessage.value = 'Connection successful!'
@@ -271,6 +280,21 @@ function handleSubmit() {
             required
             :error="errors.password"
           />
+
+          <div class="test-connection-box">
+            <BaseButton
+              type="button"
+              variant="secondary"
+              size="sm"
+              :loading="testStatus === 'loading'"
+              @click="handleTestConnection"
+            >
+              Test Connection
+            </BaseButton>
+            <div v-if="testStatus !== 'idle'" :class="['test-result', testStatus]" :title="testMessage">
+              {{ testMessage }}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -336,19 +360,7 @@ function handleSubmit() {
     </div>
 
     <div class="form-actions">
-      <div v-if="testStatus !== 'idle'" :class="['test-result', testStatus]" :title="testMessage">
-        {{ testMessage }}
-      </div>
       <div class="flex-spacer"></div>
-      <BaseButton
-        type="button"
-        variant="secondary"
-        size="sm"
-        :loading="testStatus === 'loading'"
-        @click="handleTestConnection"
-      >
-        Test Connection
-      </BaseButton>
       <BaseButton variant="ghost" @click="emit('cancel')">Cancel</BaseButton>
       <BaseButton type="submit" variant="primary" :loading="props.loading">
         {{ props.submitLabel || 'Save Configuration' }}

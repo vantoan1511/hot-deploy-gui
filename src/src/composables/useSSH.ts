@@ -1,5 +1,5 @@
 import { os, filesystem } from '@neutralinojs/lib'
-import type { Deployment } from '@/types/deployment'
+import type { Deployment, SSHConfig } from '@/types/deployment'
 
 export interface ExecResult {
   output: string
@@ -119,7 +119,7 @@ function toResult(r: { stdOut: string; stdErr: string; exitCode: number }): Exec
 
 // ── SSH execution ─────────────────────────────────────────
 
-async function execSSHWithPassword(deployment: Deployment, remoteCmd: string): Promise<ExecResult> {
+async function execSSHWithPassword(deployment: SSHConfig, remoteCmd: string): Promise<ExecResult> {
   const { password = '', host, username, sshPort } = deployment
 
   const wrapped = wrapRemoteCmd(remoteCmd)
@@ -146,7 +146,7 @@ async function execSSHWithPassword(deployment: Deployment, remoteCmd: string): P
   })
 }
 
-export async function execSSH(deployment: Deployment, remoteCmd: string): Promise<ExecResult> {
+export async function execSSH(deployment: SSHConfig, remoteCmd: string): Promise<ExecResult> {
   try {
     if (deployment.authMethod === 'password') {
       return await execSSHWithPassword(deployment, remoteCmd)
@@ -161,7 +161,7 @@ export async function execSSH(deployment: Deployment, remoteCmd: string): Promis
 
 // ── SCP execution ─────────────────────────────────────────
 
-async function execSCPWithPassword(deployment: Deployment, localPath: string, remoteDest: string): Promise<ExecResult> {
+async function execSCPWithPassword(deployment: SSHConfig, localPath: string, remoteDest: string): Promise<ExecResult> {
   const { password = '', host, username, sshPort } = deployment
 
   // 1. sshpass
@@ -184,14 +184,14 @@ async function execSCPWithPassword(deployment: Deployment, localPath: string, re
   })
 }
 
-export async function execSCP(deployment: Deployment, localPath: string, remoteDest: string): Promise<ExecResult> {
+export async function execSCP(deployment: SSHConfig, localPath: string, remoteDest: string): Promise<ExecResult> {
   try {
     if (deployment.authMethod === 'password') {
       return await execSCPWithPassword(deployment, localPath, remoteDest)
     }
     const keyFlag = deployment.privateKeyPath ? `-i "${deployment.privateKeyPath}"` : ''
     const flags = `-P ${deployment.sshPort} -o StrictHostKeyChecking=no ${keyFlag}`.trim()
-    return toResult(await os.execCommand(`scp ${flags} "${localPath}" ${deployment.username}@${deployment.host}:"${remoteDest}"`))
+    return toResult(await os.execCommand(`scp ${flags} "${localPath}" ${deployment.username}@${deployment.host} "${remoteDest}"`))
   } catch (err) {
     return { output: String(err), exitCode: 1 }
   }
@@ -199,7 +199,7 @@ export async function execSCP(deployment: Deployment, localPath: string, remoteD
 
 // ── Command builders (kept for diagnostics / external use) ─
 
-export async function buildSshCommand(deployment: Deployment, remoteCmd: string): Promise<string> {
+export async function buildSshCommand(deployment: SSHConfig, remoteCmd: string): Promise<string> {
   const { password = '', host, username, sshPort, privateKeyPath } = deployment
   const isPassword = deployment.authMethod === 'password'
 
@@ -216,7 +216,7 @@ export async function buildSshCommand(deployment: Deployment, remoteCmd: string)
   return `ssh -p ${sshPort} -o StrictHostKeyChecking=no -o BatchMode=yes ${keyFlag} ${username}@${host} "${remoteCmd}"`.replace(/\s+/g, ' ').trim()
 }
 
-export async function buildScpCommand(deployment: Deployment, localPath: string, remoteDest: string): Promise<string> {
+export async function buildScpCommand(deployment: SSHConfig, localPath: string, remoteDest: string): Promise<string> {
   const { password = '', host, username, sshPort, privateKeyPath } = deployment
   const isPassword = deployment.authMethod === 'password'
 

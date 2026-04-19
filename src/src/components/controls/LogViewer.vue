@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { execSSH } from '@/composables/useSSH'
 import type { ControlConnection } from '@/types/deployment'
-import AnsiUp from 'ansi_up'
+import Convert from 'ansi-to-html'
 
 const props = defineProps<{
   connection: ControlConnection
@@ -14,7 +14,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-const ansi = new AnsiUp()
+const convert = new Convert()
 const content = ref('')
 const isFollowing = ref(true)
 const refreshInterval = ref(1) // seconds
@@ -30,7 +30,7 @@ async function fetchLog() {
   try {
     // We fetch the last 200 lines to keep it performant
     const res = await execSSH(props.connection, `tail -n 200 "${props.logPath}"`)
-    content.value = ansi.ansi_to_html(res.output)
+    content.value = convert.toHtml(res.output)
     
     if (isFollowing.value) {
       scrollToBottom()
@@ -47,7 +47,7 @@ async function fetchLog() {
 
 function startTimer() {
   stopTimer()
-  const ms = Math.max(props.refreshInterval * 1000, 1000)
+  const ms = Math.max(refreshInterval.value * 1000, 1000)
   timer = setTimeout(fetchLog, ms)
 }
 

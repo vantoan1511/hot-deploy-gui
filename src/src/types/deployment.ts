@@ -10,23 +10,31 @@ export interface Service {
   isUiService?: boolean   // Upload-and-rename only; no service dir resolution or extraction
 }
 
-// ── Deployment Configuration ────────────────────────────────
-// Core data entity as defined in SPEC.md §2.1
+// ── SSH Base Configuration ──────────────────────────────────
+// Fields common to all SSH-based connections
 
 export type AuthMethod = 'key' | 'password'
 
-export interface Deployment {
-  id: string               // UUID v4
-  name: string             // Human-readable label
+export interface SSHConfig {
   host: string             // Remote hostname or IP
   username: string         // SSH login username
   authMethod: AuthMethod
+  sshPort: number          // Port (default 22)
   privateKeyPath?: string  // Absolute local path to SSH private key
   password?: string        // Encrypted SSH password
-  sshPort: number          // Default: 22
+}
+
+// ── Deployment Configuration ────────────────────────────────
+// Core data entity as defined in SPEC.md §2.1
+
+export interface Deployment extends SSHConfig {
+  id: string               // UUID v4
+  name: string             // Human-readable label
+  
   remoteDeployPath: string // Absolute remote base path (supports wildcards)
   remoteLogPath: string    // Absolute remote log directory
   services: Service[]      // One or more services to deploy
+
   createdAt: string        // ISO 8601
   updatedAt: string        // ISO 8601
   tags: string[]
@@ -36,15 +44,9 @@ export interface Deployment {
 // ── Control Configuration ───────────────────────────────────
 // Server-wide management configuration
 
-export interface ControlConnection {
+export interface ControlConnection extends SSHConfig {
   id: string               // UUID v4
   name: string             // Human-readable label
-  host: string             // Remote hostname or IP
-  username: string         // SSH login username
-  authMethod: AuthMethod
-  privateKeyPath?: string  // Absolute local path to SSH private key
-  password?: string        // Encrypted SSH password
-  sshPort: number          // Default: 22
   
   // Application specifics
   applicationName: string      // e.g. "my-app"
