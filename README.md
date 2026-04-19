@@ -33,7 +33,7 @@ A cross-platform desktop application for managing and executing Java service dep
 
 ```bash
 # 1. Install frontend dependencies
-cd vue-src && npm install
+cd src && npm install
 
 # 2. Start the Vite dev server (keep this terminal open)
 npm run dev
@@ -42,7 +42,7 @@ npm run dev
 neu run
 ```
 
-The app opens at 1280×800. Any code change in `vue-src/src/` hot-reloads instantly.
+The app opens at 1280×800. Any code change in `src/src/` hot-reloads instantly.
 
 ---
 
@@ -59,7 +59,7 @@ The app opens at 1280×800. Any code change in `vue-src/src/` hot-reloads instan
 
 ```bash
 # Install frontend dependencies
-cd vue-src
+cd src
 npm install
 
 # Start the Vite dev server
@@ -75,7 +75,7 @@ The app connects to the Vite dev server at `http://localhost:5173` with hot modu
 
 ```bash
 # Build the Vue SPA
-cd vue-src
+cd src
 npm run build
 
 # Package the desktop app
@@ -201,7 +201,7 @@ See [`SPEC.md`](SPEC.md) for the full technical specification.
 ```
 hot-deploy-gui/
 ├── neutralino.config.json   # Desktop app config (window size, API allowlist)
-├── vue-src/
+├── src/
 │   ├── src/
 │   │   ├── stores/          # Pinia state (deployments, session, settings)
 │   │   ├── views/           # Page-level components

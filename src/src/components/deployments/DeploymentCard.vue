@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import TagBadge from '@/components/ui/TagBadge.vue'
 import type { Deployment } from '@/types/deployment'
 
@@ -12,6 +12,8 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const menuOpen = ref(false)
+
+const servicesCount = computed(() => props.deployment.services?.length ?? 0)
 
 function openDetail() {
   router.push(`/deployments/${props.deployment.id}`)
@@ -59,7 +61,7 @@ function closeMenu() {
 
     <!-- Host + path summary -->
     <p class="card-host">{{ deployment.username }}@{{ deployment.host }}:{{ deployment.sshPort }}</p>
-    <p class="card-path">{{ deployment.remoteDeployPath }} · {{ deployment.services.length }} service{{ deployment.services.length !== 1 ? 's' : '' }}</p>
+    <p class="card-path">{{ deployment.remoteDeployPath }} · {{ servicesCount }} service{{ servicesCount !== 1 ? 's' : '' }}</p>
 
     <!-- Footer row -->
     <div class="card-footer">

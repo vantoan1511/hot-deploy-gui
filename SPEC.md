@@ -136,7 +136,7 @@ Additional tool integrations are embedded in the sidebar:
 ```
 hot-deploy-gui/
 ├── neutralino.config.json
-├── vue-src/src/
+├── src/src/
 │   ├── main.ts                       # App entry point; calls Neutralino init()
 │   ├── App.vue
 │   ├── router/

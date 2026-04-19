@@ -1,11 +1,12 @@
 {
-  "applicationId": "js.neutralino.hot-deploy-gui",
-  "version": "1.0.0",
+  "applicationId": "com.github.vantoan1511.hotdeploygui",
+  "version": "1.1.0",
   "defaultMode": "window",
-  "documentRoot": "/vue-src/dist/",
+  "documentRoot": "/src/dist/",
   "url": "/",
   "enableServer": true,
   "enableNativeAPI": true,
+  "tokenSecurity": "none",
   "nativeAllowList": [
     "app.*",
     "os.*",
@@ -19,20 +20,20 @@
       "height": 800,
       "minWidth": 900,
       "minHeight": 600,
-      "icon": "/vue-src/public/favicon.ico",
-      "enableInspector": false
+      "icon": "/src/public/favicon.ico",
+      "enableInspector": true
     }
   },
   "cli": {
     "binaryName": "hot-deploy-gui",
-    "resourcesPath": "/vue-src/dist/",
+    "resourcesPath": "/src/dist/",
     "extensionsPath": "/extensions/",
     "binaryVersion": "6.5.0",
     "clientVersion": "6.5.0",
     "frontendLibrary": {
-      "patchFile": "/vue-src/index.html",
+      "patchFile": "/src/index.html",
       "devUrl": "http://localhost:5173",
-      "projectPath": "/vue-src",
+      "projectPath": "/src",
       "initCommand": "npm install",
       "devCommand": "npm run dev",
       "buildCommand": "npm run build"
