@@ -65,6 +65,10 @@ const schema = z.object({
   logsPath: z.string().min(1, 'Logs path is required'),
   privateKeyPath: z.string().optional(),
   password: z.string().optional(),
+  localPackagePath: z.string().optional(),
+  preCommands: z.array(z.string()).optional(),
+  postCommands: z.array(z.string()).optional(),
+  runPostOnFailure: z.boolean().optional(),
 }).refine((data) => {
   if (data.authMethod === 'password') return !!data.password
   return true

@@ -33,3 +33,7 @@ export function resolveRemotePath(root: string, path: string): string {
 
   return cleanPath.replace(/\/+$/, '')
 }
+
+export function isUrl(path: string): boolean {
+  return path.startsWith('http://') || path.startsWith('https://')
+}

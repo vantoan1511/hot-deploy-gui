@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { useSessionStore, GLOBAL_STEPS, SERVICE_STEPS } from '@/stores/session'
 import { useDeploymentsStore } from '@/stores/deployments'
 import { execSSH, execSCP } from './useSSH'
-import { remoteJarFilename, remoteServiceLogPath } from '@/utils/pathUtils'
+import { remoteJarFilename, remoteServiceLogPath, isUrl } from '@/utils/pathUtils'
 import type { Deployment, Service, StepStatus } from '@/types/deployment'
 
 export const GLOBAL_STEP_NAMES = [
@@ -189,14 +189,27 @@ export function useDeployRunner() {
                 result = { output: 'Remote target not resolved. Run the first step first.', exitCode: 1 }
                 status = 'error'
               } else {
-                const scpResult = await execSCP(dep, service.localJarPath, `${dep.remoteDeployPath}/`)
-                if (scpResult.exitCode === 0) {
-                  const verify = await execSSH(dep, `ls -lh "${dep.remoteDeployPath}/${jarName}"`)
-                  result = { exitCode: 0, output: verify.output.trim() || `Uploaded: ${jarName}` }
-                  status = 'success'
+                if (isUrl(service.localJarPath)) {
+                  // Use wget on the remote server
+                  const wgetCmd = `wget -q --no-check-certificate -O "${dep.remoteDeployPath}/${jarName}" "${service.localJarPath}"`
+                  result = await execSSH(dep, wgetCmd)
+                  if (result.exitCode === 0) {
+                    const verify = await execSSH(dep, `ls -lh "${dep.remoteDeployPath}/${jarName}"`)
+                    result = { exitCode: 0, output: `[WGET] ${verify.output.trim() || 'Downloaded complete'}` }
+                    status = 'success'
+                  } else {
+                    status = 'error'
+                  }
                 } else {
-                  result = scpResult
-                  status = 'error'
+                  const scpResult = await execSCP(dep, service.localJarPath, `${dep.remoteDeployPath}/`)
+                  if (scpResult.exitCode === 0) {
+                    const verify = await execSSH(dep, `ls -lh "${dep.remoteDeployPath}/${jarName}"`)
+                    result = { exitCode: 0, output: verify.output.trim() || `Uploaded: ${jarName}` }
+                    status = 'success'
+                  } else {
+                    result = scpResult
+                    status = 'error'
+                  }
                 }
               }
               break

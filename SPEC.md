@@ -167,9 +167,10 @@ Controls provide a high-level view of a deployment server by scanning the filesy
 
 #### 3.6.4 Hot Deploy
 Controls support direct localized deployments to a target server.
-- **Local Package:** Stores a path to a `.jar` or `.tgz` file locally.
+- **Local Package:** Stores a path to a `.jar`/`.tgz` file locally OR a remote URL (`http://...`).
+- **URL Support:** If a URL is provided, the remote server fetches the package via `wget -q --no-check-certificate`.
 - **Workflow:**
-  1. Transfer local package to `rootDeploymentPath` (buffered via `.tmp`).
+  1. Transfer: `scp` local file OR `wget` remote URL to `.tmp` path.
   2. Cleanup: Remove existing file with the same name.
   3. Finalize: Rename temp file to original name.
   4. Execution: Runs all `preCommands` then `postCommands`.

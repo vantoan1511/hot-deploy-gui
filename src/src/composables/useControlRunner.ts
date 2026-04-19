@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { execSSH, execSCP } from './useSSH'
-import { resolveRemotePath } from '@/utils/pathUtils'
+import { resolveRemotePath, isUrl } from '@/utils/pathUtils'
 import { useControlSessionStore } from '@/stores/controlSession'
 import { useControlsStore } from '@/stores/controls'
 import type { ControlConnection, DetectedService } from '@/types/deployment'
@@ -197,9 +197,17 @@ export function useControlRunner() {
 
     try {
       // 1. Transfer to .tmp
-      const scpRes = await execSCP(control, pkgPath, tmpPath)
-      deployStatus.value.logs.push(`[TRANSFER] ${scpRes.output || 'Upload complete'}`)
-      if (scpRes.exitCode !== 0) throw new Error(`Transfer failed: ${scpRes.output}`)
+      if (isUrl(pkgPath)) {
+        deployStatus.value.currentStep = `Downloading (Remote) ${filename}...`
+        const wgetCmd = `wget -q --no-check-certificate -O "${tmpPath}" "${pkgPath}"`
+        const wgetRes = await execSSH(control, wgetCmd)
+        deployStatus.value.logs.push(`[WGET] ${wgetRes.output || 'Download complete'}`)
+        if (wgetRes.exitCode !== 0) throw new Error(`Fetch failed: ${wgetRes.output}`)
+      } else {
+        const scpRes = await execSCP(control, pkgPath, tmpPath)
+        deployStatus.value.logs.push(`[TRANSFER] ${scpRes.output || 'Upload complete'}`)
+        if (scpRes.exitCode !== 0) throw new Error(`Transfer failed: ${scpRes.output}`)
+      }
 
       // 2. Remove old
       deployStatus.value.phase = 'cleaning'
