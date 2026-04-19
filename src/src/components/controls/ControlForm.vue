@@ -358,6 +358,7 @@ function removePostCommand(index: number) {
               type="number"
               label="HTTP Port"
               placeholder="e.g. 80"
+              :error="errors.applicationHttpPort"
               class="flex-1"
             />
             <BaseInput
@@ -365,6 +366,7 @@ function removePostCommand(index: number) {
               type="number"
               label="HTTPS Port"
               placeholder="e.g. 443"
+              :error="errors.applicationHttpsPort"
               class="flex-1"
             />
           </div>

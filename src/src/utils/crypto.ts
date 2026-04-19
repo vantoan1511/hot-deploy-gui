@@ -9,7 +9,12 @@
 const APP_SALT = 'hot-deploy-gui-v1'
 const PBKDF2_ITERATIONS = 100_000
 
+let cachedKey: CryptoKey | null = null
+let cachedSecret: string | null = null
+
 async function deriveKey(machineSecret: string): Promise<CryptoKey> {
+  if (cachedKey && cachedSecret === machineSecret) return cachedKey
+
   const encoder = new TextEncoder()
   const baseKey = await crypto.subtle.importKey(
     'raw',
@@ -18,7 +23,8 @@ async function deriveKey(machineSecret: string): Promise<CryptoKey> {
     false,
     ['deriveKey']
   )
-  return crypto.subtle.deriveKey(
+  
+  const derivedKey = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
       salt: encoder.encode(APP_SALT),
@@ -30,6 +36,10 @@ async function deriveKey(machineSecret: string): Promise<CryptoKey> {
     false,
     ['encrypt', 'decrypt']
   )
+
+  cachedKey = derivedKey
+  cachedSecret = machineSecret
+  return derivedKey
 }
 
 function bufferToBase64(buffer: ArrayBuffer): string {

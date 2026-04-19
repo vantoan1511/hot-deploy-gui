@@ -13,6 +13,15 @@ const id = route.params.id as string
 const isEditMode = !!id
 
 const control = ref<ControlConnection | undefined>(undefined)
+const isSaving = ref(false)
+const feedback = ref<{ type: 'success' | 'error'; message: string } | null>(null)
+let feedbackTimer: any = null
+
+function showFeedback(type: 'success' | 'error', message: string) {
+  if (feedbackTimer) clearTimeout(feedbackTimer)
+  feedback.value = { type, message }
+  feedbackTimer = setTimeout(() => { feedback.value = null }, 3000)
+}
 
 onMounted(async () => {
   if (store.controls.length === 0) {
@@ -38,16 +47,27 @@ function handleCancel() {
 }
 
 async function handleSubmit(formData: any) {
+  isSaving.value = true
   try {
     if (isEditMode) {
       await store.update(id, formData)
-      router.push(`/controls/${id}`)
+      showFeedback('success', 'Changes saved successfully!')
+      // Brief delay to let user see feedback before redirecting
+      setTimeout(() => {
+        router.push(`/controls/${id}`)
+      }, 400)
     } else {
       const newControl = await store.create(formData)
-      router.push(`/controls/${newControl.id}`)
+      showFeedback('success', 'Control created successfully!')
+      setTimeout(() => {
+        router.push(`/controls/${newControl.id}`)
+      }, 400)
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to save control:', err)
+    showFeedback('error', `Failed to save: ${err.message || err}`)
+  } finally {
+    isSaving.value = false
   }
 }
 </script>
@@ -61,11 +81,16 @@ async function handleSubmit(formData: any) {
       </p>
     </div>
 
+    <div v-if="feedback" class="feedback-banner" :class="feedback.type">
+      {{ feedback.message }}
+    </div>
+
     <div class="form-container">
       <ControlForm
         v-if="!isEditMode || control"
         :initial-data="control"
         :submit-label="isEditMode ? 'Save Changes' : 'Create Control'"
+        :loading="isSaving"
         @submit="handleSubmit"
         @cancel="handleCancel"
       />
@@ -95,6 +120,32 @@ async function handleSubmit(formData: any) {
   margin: 0;
   font-size: 13px;
   color: var(--color-text-muted);
+}
+
+.feedback-banner {
+  padding: 10px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  animation: slide-down 0.2s ease;
+}
+
+.feedback-banner.success {
+  background-color: color-mix(in srgb, var(--color-success) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
+  color: var(--color-success);
+}
+
+.feedback-banner.error {
+  background-color: color-mix(in srgb, var(--color-error) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-error) 30%, transparent);
+  color: var(--color-error);
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .form-container {

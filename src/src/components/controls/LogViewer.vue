@@ -21,6 +21,7 @@ const refreshInterval = ref(1) // seconds
 const isLoading = ref(false)
 const terminalRef = ref<HTMLElement | null>(null)
 
+const isMounted = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
 
 async function fetchLog() {
@@ -39,7 +40,8 @@ async function fetchLog() {
     content.value = `<span style="color: var(--color-error)">Failed to read log: ${err}</span>`
   } finally {
     isLoading.value = false
-    if (isFollowing.value) {
+    // Only restart timer if still following AND component is still mounted
+    if (isFollowing.value && isMounted.value) {
       startTimer()
     }
   }
@@ -81,10 +83,12 @@ watch(() => props.logPath, () => {
 })
 
 onMounted(() => {
+  isMounted.value = true
   fetchLog()
 })
 
 onUnmounted(() => {
+  isMounted.value = false
   stopTimer()
 })
 </script>
