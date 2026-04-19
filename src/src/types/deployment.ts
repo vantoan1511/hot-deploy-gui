@@ -64,6 +64,12 @@ export interface ControlConnection extends SSHConfig {
   createdAt: string
   updatedAt: string
   tags: string[]
+
+  // Deployment specifics
+  localPackagePath?: string     // Local .jar or .tgz
+  preCommands?: string[]        // Remote commands before finalize
+  postCommands?: string[]       // Remote commands after finalize
+  runPostOnFailure?: boolean    // Whether to run post-commands if pre-commands fail
 }
 
 export interface ControlServiceOverride {

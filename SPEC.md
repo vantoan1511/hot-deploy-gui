@@ -165,10 +165,16 @@ Controls provide a high-level view of a deployment server by scanning the filesy
 - **Disable:** Moves service directory to `*_disabled` and kills the process.
 - **Hot Deploy:** Uploads local JAR and restarts; remembers local path for future use.
 
-#### 3.6.3 Log Monitoring
-- **General Log:** Detects at `logsPath/applicationName.log`.
-- **Service Logs:** Detects at `logsPath/serviceName.log`.
-- **Follow Mode:** Auto-poll via `tail` every second (configurable).
+#### 3.6.4 Hot Deploy
+Controls support direct localized deployments to a target server.
+- **Local Package:** Stores a path to a `.jar` or `.tgz` file locally.
+- **Workflow:**
+  1. Transfer local package to `rootDeploymentPath` (buffered via `.tmp`).
+  2. Cleanup: Remove existing file with the same name.
+  3. Finalize: Rename temp file to original name.
+  4. Execution: Runs all `preCommands` then `postCommands`.
+- **Strategy:** `postCommands` can be configured to run always or only on pre-command success.
+- **UI:** A progress panel in `ControlDetailView` provides real-time feedback and terminal logs during execution.
 
 ---
 

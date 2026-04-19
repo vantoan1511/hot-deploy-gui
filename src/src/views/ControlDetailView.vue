@@ -27,6 +27,8 @@ const serviceSearch = ref('')
 const activeLog = ref<{ path: string; title: string } | null>(null)
 const confirmDisable = ref<DetectedService | null>(null)
 const isActionRunning = ref(false)
+const showDeployPanel = ref(false)
+const logContainer = ref<HTMLElement | null>(null)
 
 const session = computed(() => sessionStore.getOrCreateSession(id))
 
@@ -126,9 +128,31 @@ async function handleHotDeploy(service: DetectedService) {
     await controlsStore.updateServiceOverride(id, service.id, { localJarPath: picked })
   }
 
-  // 2. Perform deploy logic similar to useDeployRunner step-by-step
-  // For this simplified version we'll show a message or just implement the core SCP + MV
-  alert(`Deploying ${localPath} to ${service.path}... (Implementation in progress)`)
+  // Use the new generic deploy runner if possible, or just SCP directly
+  // For individual services, we'll keep the simple alert for now as the user 
+  // primarily asked for the global "Deploy Package" feature.
+  alert(`Service-specific hot-deploy for ${service.name} using ${localPath} is coming soon. Use the main 'Deploy Package' button for full lifecycle deployment.`)
+}
+
+async function startDeploy() {
+  if (!control.value) return
+  showDeployPanel.value = true
+  runner.resetDeployStatus()
+  
+  try {
+    await runner.deployPackage(id)
+    // After success, rescan to see changes
+    if (runner.deployStatus.value.phase === 'success') {
+      setTimeout(handleScan, 1000)
+    }
+  } catch (err) {
+    console.error('Deploy failed:', err)
+  }
+}
+
+function closeDeployPanel() {
+  showDeployPanel.value = false
+  runner.resetDeployStatus()
 }
 </script>
 
@@ -149,7 +173,15 @@ async function handleHotDeploy(service: DetectedService) {
         <div class="header-actions">
           <BaseButton variant="secondary" @click="openGeneralLog">📖 App Log</BaseButton>
           <BaseButton variant="secondary" :loading="session.isScanning" @click="handleScan">🔄 Rescan</BaseButton>
-          <BaseButton variant="primary" @click="router.push(`/controls/${id}/edit`)">✏️ Edit</BaseButton>
+          <BaseButton 
+            v-if="control.localPackagePath" 
+            variant="primary" 
+            :loading="runner.deployStatus.value.phase !== 'idle' && runner.deployStatus.value.phase !== 'success' && runner.deployStatus.value.phase !== 'error'"
+            @click="startDeploy"
+          >
+            🚀 Deploy Package
+          </BaseButton>
+          <BaseButton variant="secondary" @click="router.push(`/controls/${id}/edit`)">✏️ Edit</BaseButton>
         </div>
       </div>
     </header>
@@ -173,6 +205,39 @@ async function handleHotDeploy(service: DetectedService) {
         <div class="tile-value">{{ session.lastScanAt ? new Date(session.lastScanAt).toLocaleTimeString() : 'Never' }}</div>
       </div>
     </div>
+
+    <!-- Deployment Progress Panel -->
+    <transition name="slide">
+      <section v-if="showDeployPanel" class="deploy-panel">
+        <div class="panel-header">
+          <div class="panel-title-box">
+            <h2 class="section-title">Deployment Progress</h2>
+            <div :class="['status-pill', runner.deployStatus.value.phase]">
+              {{ runner.deployStatus.value.phase.toUpperCase() }}
+            </div>
+          </div>
+          <BaseButton v-if="['success', 'error'].includes(runner.deployStatus.value.phase)" size="sm" variant="ghost" @click="closeDeployPanel">Close</BaseButton>
+        </div>
+
+        <div class="panel-content">
+          <div class="step-indicator">
+            <div class="step-text">{{ runner.deployStatus.value.currentStep || 'Initializing...' }}</div>
+            <div class="progress-bar">
+              <div class="progress-fill" :class="runner.deployStatus.value.phase"></div>
+            </div>
+          </div>
+
+          <div class="terminal-box" ref="logContainer">
+            <div v-for="(log, i) in runner.deployStatus.value.logs" :key="i" class="log-line">
+              {{ log }}
+            </div>
+            <div v-if="runner.deployStatus.value.error" class="log-line error">
+              [CRITICAL] {{ runner.deployStatus.value.error }}
+            </div>
+          </div>
+        </div>
+      </section>
+    </transition>
 
     <!-- Services Section -->
     <section class="services-section">
@@ -496,5 +561,140 @@ async function handleHotDeploy(service: DetectedService) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ── Deployment Panel ────────────────────────────────────── */
+
+.deploy-panel {
+  background-color: var(--color-surface-1);
+  border: 1px solid var(--color-surface-3);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-header {
+  padding: 16px 20px;
+  background-color: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-surface-3);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-title-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background-color: var(--color-surface-3);
+  color: var(--color-text-secondary);
+}
+
+.status-pill.transferring, .status-pill.cleaning, .status-pill.finalizing, .status-pill.pre-commands, .status-pill.post-commands {
+  background-color: color-mix(in srgb, var(--color-info) 15%, transparent);
+  color: var(--color-info);
+}
+
+.status-pill.success {
+  background-color: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: var(--color-success);
+}
+
+.status-pill.error {
+  background-color: color-mix(in srgb, var(--color-error) 15%, transparent);
+  color: var(--color-error);
+}
+
+.panel-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.step-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.progress-bar {
+  height: 6px;
+  background-color: var(--color-surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 100%;
+  background-color: var(--color-primary-500);
+  animation: progress-slide 2s infinite linear;
+  transform-origin: left;
+}
+
+.progress-fill.success {
+  animation: none;
+  background-color: var(--color-success);
+}
+
+.progress-fill.error {
+  animation: none;
+  background-color: var(--color-error);
+}
+
+@keyframes progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.terminal-box {
+  background-color: var(--color-surface-0);
+  border: 1px solid var(--color-surface-3);
+  border-radius: 6px;
+  padding: 12px;
+  height: 200px;
+  overflow-y: auto;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.log-line {
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-line.error {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+/* ── Animations ─────────────────────────────────────────── */
+
+.slide-enter-active, .slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-enter-from, .slide-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
 }
 </style>

@@ -38,6 +38,11 @@ const form = ref({
   servicesPath: '',
   logsPath: 'logs',
   tagsString: '',
+  // Deployment
+  localPackagePath: '',
+  preCommands: [] as string[],
+  postCommands: [] as string[],
+  runPostOnFailure: false,
 })
 
 const errors = ref<Record<string, string>>({})
@@ -109,6 +114,10 @@ onMounted(() => {
       servicesPath: d.servicesPath,
       logsPath: d.logsPath,
       tagsString: d.tags.join(', '),
+      localPackagePath: d.localPackagePath || '',
+      preCommands: [...(d.preCommands || [])],
+      postCommands: [...(d.postCommands || [])],
+      runPostOnFailure: d.runPostOnFailure || false,
     }
   }
 })
@@ -180,8 +189,38 @@ function handleSubmit() {
   emit('submit', {
     ...result.data,
     tags,
-    serviceOverrides: props.initialData?.serviceOverrides || {}
+    serviceOverrides: props.initialData?.serviceOverrides || {},
+    preCommands: form.value.preCommands,
+    postCommands: form.value.postCommands,
+    runPostOnFailure: form.value.runPostOnFailure,
   })
+}
+
+async function pickPackage() {
+  const path = await useOpenDialog({ 
+    title: 'Select Application Package',
+    filters: [
+      { name: 'Packages', extensions: ['jar', 'tgz', 'tar.gz'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  })
+  if (path) form.value.localPackagePath = path
+}
+
+function addPreCommand() {
+  form.value.preCommands.push('')
+}
+
+function removePreCommand(index: number) {
+  form.value.preCommands.splice(index, 1)
+}
+
+function addPostCommand() {
+  form.value.postCommands.push('')
+}
+
+function removePostCommand(index: number) {
+  form.value.postCommands.splice(index, 1)
 }
 </script>
 
@@ -357,6 +396,62 @@ function handleSubmit() {
           />
         </div>
       </div>
+
+      <!-- Section: Hot Deploy -->
+      <div class="form-section full-width">
+        <h3 class="section-title">Hot Deploy Settings</h3>
+        <div class="section-content">
+          <div class="field-with-action">
+            <BaseInput
+              v-model="form.localPackagePath"
+              label="Local Application Package (.jar / .tgz)"
+              placeholder="/path/to/app.jar"
+              read-only
+              :error="errors.localPackagePath"
+              class="flex-1"
+              hint="Selected file will be uploaded to Root Deployment Path"
+            />
+            <BaseButton size="sm" class="action-btn" @click="pickPackage">Browse</BaseButton>
+          </div>
+
+          <div class="command-lists">
+            <div class="command-group">
+              <div class="group-header">
+                <label class="input-label">Pre-commands</label>
+                <button type="button" class="text-link" @click="addPreCommand">+ Add</button>
+              </div>
+              <div class="commands-stack">
+                <div v-for="(_, i) in form.preCommands" :key="i" class="command-row">
+                  <BaseInput v-model="form.preCommands[i]" placeholder="e.g. systemctl stop my-app" class="flex-1" />
+                  <button type="button" class="remove-btn" @click="removePreCommand(i)">×</button>
+                </div>
+                <div v-if="form.preCommands.length === 0" class="empty-state-mini">No pre-commands defined.</div>
+              </div>
+            </div>
+
+            <div class="command-group">
+              <div class="group-header">
+                <label class="input-label">Post-commands</label>
+                <button type="button" class="text-link" @click="addPostCommand">+ Add</button>
+              </div>
+              <div class="commands-stack">
+                <div v-for="(_, i) in form.postCommands" :key="i" class="command-row">
+                  <BaseInput v-model="form.postCommands[i]" placeholder="e.g. systemctl start my-app" class="flex-1" />
+                  <button type="button" class="remove-btn" @click="removePostCommand(i)">×</button>
+                </div>
+                <div v-if="form.postCommands.length === 0" class="empty-state-mini">No post-commands defined.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="checkbox-field">
+            <label class="checkbox-wrapper">
+              <input type="checkbox" v-model="form.runPostOnFailure" />
+              <span class="checkbox-label">Run post-commands even if pre-commands fail</span>
+            </label>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="form-actions">
@@ -502,5 +597,110 @@ function handleSubmit() {
 
 .toggle-btn:hover:not(.active) {
   color: var(--color-text-primary);
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.command-lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+  .command-lists {
+    grid-template-columns: 1fr;
+  }
+}
+
+.command-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.text-link {
+  background: none;
+  border: none;
+  color: var(--color-primary-500);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+}
+
+.commands-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 40px;
+  padding: 12px;
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-surface-3);
+  border-radius: 8px;
+}
+
+.command-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.remove-btn:hover {
+  color: var(--color-error);
+}
+
+.empty-state-mini {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-style: italic;
+  text-align: center;
+  margin-top: 4px;
+}
+
+.checkbox-field {
+  margin-top: 8px;
+}
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+  accent-color: var(--color-primary-500);
+  width: 16px;
+  height: 16px;
 }
 </style>

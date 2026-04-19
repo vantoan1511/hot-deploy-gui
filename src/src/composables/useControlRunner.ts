@@ -172,12 +172,98 @@ export function useControlRunner() {
     sessionStore.updateService(connection.id, serviceId, updated)
   }
 
+  // ── Hot Deploy ─────────────────────────────────────────────
+
+  interface DeployStatus {
+    phase: 'idle'|'transferring'|'cleaning'|'finalizing'|'pre-commands'|'post-commands'|'success'|'error'
+    currentStep?: string
+    logs: string[]
+    error?: string
+  }
+
+  const deployStatus = ref<DeployStatus>({ phase: 'idle', logs: [] })
+
+  async function deployPackage(controlId: string) {
+    const control = await controlsStore.getPlaintextControl(controlId)
+    if (!control) throw new Error('Control not found')
+    if (!control.localPackagePath) throw new Error('No local package path configured')
+
+    const pkgPath = control.localPackagePath
+    const filename = pkgPath.split(/[/\\]/).pop() || 'package'
+    const targetPath = `${control.rootDeploymentPath}/${filename}`
+    const tmpPath = `${targetPath}.tmp`
+
+    deployStatus.value = { phase: 'transferring', currentStep: `Uploading ${filename}...`, logs: [] }
+
+    try {
+      // 1. Transfer to .tmp
+      const scpRes = await execSCP(control, pkgPath, tmpPath)
+      deployStatus.value.logs.push(`[TRANSFER] ${scpRes.output || 'Upload complete'}`)
+      if (scpRes.exitCode !== 0) throw new Error(`Transfer failed: ${scpRes.output}`)
+
+      // 2. Remove old
+      deployStatus.value.phase = 'cleaning'
+      deployStatus.value.currentStep = 'Cleaning old package...'
+      const rmRes = await execSSH(control, `rm -f "${targetPath}"`)
+      deployStatus.value.logs.push(`[CLEANUP] Removed ${targetPath}`)
+
+      // 3. Finalize (Rename)
+      deployStatus.value.phase = 'finalizing'
+      deployStatus.value.currentStep = 'Finalizing package...'
+      const mvRes = await execSSH(control, `mv "${tmpPath}" "${targetPath}"`)
+      if (mvRes.exitCode !== 0) throw new Error(`Finalization failed: ${mvRes.output}`)
+      deployStatus.value.logs.push(`[FINALIZE] Moved ${tmpPath} -> ${targetPath}`)
+
+      // 4. Pre-commands
+      let preSuccess = true
+      if (control.preCommands?.length) {
+        deployStatus.value.phase = 'pre-commands'
+        for (const cmd of control.preCommands) {
+          if (!cmd.trim()) continue
+          deployStatus.value.currentStep = `Running pre-command: ${cmd}`
+          const res = await execSSH(control, cmd)
+          deployStatus.value.logs.push(`[PRE] ${cmd} -> Exit ${res.exitCode}\n${res.output}`)
+          if (res.exitCode !== 0) {
+            preSuccess = false
+            if (!control.runPostOnFailure) break
+          }
+        }
+      }
+
+      // 5. Post-commands
+      if (control.postCommands?.length && (preSuccess || control.runPostOnFailure)) {
+        deployStatus.value.phase = 'post-commands'
+        for (const cmd of control.postCommands) {
+          if (!cmd.trim()) continue
+          deployStatus.value.currentStep = `Running post-command: ${cmd}`
+          const res = await execSSH(control, cmd)
+          deployStatus.value.logs.push(`[POST] ${cmd} -> Exit ${res.exitCode}\n${res.output}`)
+          if (res.exitCode !== 0) break
+        }
+      }
+
+      deployStatus.value.phase = preSuccess ? 'success' : 'error'
+      deployStatus.value.currentStep = preSuccess ? 'Deployment successful!' : 'Deployment failed in pre-commands.'
+    } catch (err) {
+      deployStatus.value.phase = 'error'
+      deployStatus.value.error = String(err)
+      deployStatus.value.logs.push(`[ERROR] ${err}`)
+    }
+  }
+
+  function resetDeployStatus() {
+    deployStatus.value = { phase: 'idle', logs: [] }
+  }
+
   return {
     isRefreshing,
+    deployStatus,
     scanServices,
     stopService,
     restartService,
     disableService,
     refreshService,
+    deployPackage,
+    resetDeployStatus,
   }
 }
