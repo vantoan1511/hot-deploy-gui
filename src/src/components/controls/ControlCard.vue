@@ -71,11 +71,11 @@ function handleDelete(e: Event) {
         <button class="icon-btn" title="More Actions" @click="toggleMenu">⋯</button>
         <div v-if="menuOpen" v-click-outside="closeMenu" class="card-dropdown">
           <button class="dropdown-item" @click="handleClone">
-            <span class="icon">📋</span> Clone Control
+            <span class="icon">📋</span> Clone
           </button>
           <div class="divider"></div>
           <button class="dropdown-item delete" @click="handleDelete">
-            <span class="icon">🗑️</span> Delete Control
+            <span class="icon">🗑️</span> Delete
           </button>
         </div>
       </div>
