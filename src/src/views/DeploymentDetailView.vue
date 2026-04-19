@@ -41,7 +41,8 @@ async function handleExport() {
       defaultPath: `${slug}.json`,
     })
     if (!path) return
-    await filesystem.writeFile(path, serializeExport([deployment.value]))
+    const json = serializeExport({ deployments: [deployment.value] })
+    await filesystem.writeFile(path, json)
   } finally {
     isExporting.value = false
   }

@@ -3,8 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { filesystem } from '@neutralinojs/lib'
 import { useDeploymentsStore } from '@/stores/deployments'
-import type { CollisionDecision } from '@/stores/deployments'
-import type { Deployment } from '@/types/deployment'
+import type { Deployment, CollisionDecision } from '@/types/deployment'
 import { parseImport, serializeExport } from '@/utils/exportImport'
 import { useOpenDialog, useSaveDialog } from '@/composables/useFileDialog'
 import DeploymentCard from '@/components/deployments/DeploymentCard.vue'
@@ -85,7 +84,7 @@ async function handleExportAll() {
       defaultPath: 'hot-deploy-export.json',
     })
     if (!path) return
-    const json = serializeExport(store.deployments)
+    const json = serializeExport({ deployments: store.deployments })
     await filesystem.writeFile(path, json)
     showFeedback('success', `Exported ${store.deployments.length} deployment(s) to file.`)
   } catch (err) {

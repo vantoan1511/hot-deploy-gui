@@ -54,7 +54,7 @@ const ControlConnectionSchema = z.object({
   updatedAt: z.string().datetime(),
   privateKeyPath: z.string().optional(),
   password: z.string().optional(),
-  serviceOverrides: z.record(ServiceOverrideSchema).optional(),
+  serviceOverrides: z.record(z.string(), ServiceOverrideSchema).optional(),
   // Hot Deploy
   localPackagePath: z.string().optional(),
   preCommands: z.array(z.string()).optional(),
