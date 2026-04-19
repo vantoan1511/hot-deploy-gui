@@ -6,12 +6,13 @@ interface NavItem {
   label: string
   to: string
   icon: string
+  deprecated?: boolean
 }
 
 const ui = useUIStore()
 
 const navItems: NavItem[] = [
-  { label: 'Deployments',  to: '/',             icon: '⚡' },
+  { label: 'Deployments',  to: '/',             icon: '⚡', deprecated: true },
   { label: 'Controls',     to: '/controls',      icon: '🎮' },
   { label: 'Release Tool', to: '/release-tool', icon: '🔖' },
   { label: 'Devtools+',    to: '/devtools',     icon: '🛠' },
@@ -57,12 +58,13 @@ const appVersion = __APP_VERSION__
         <div
           role="link"
           class="nav-item"
-          :class="{ 'nav-item--active': isActive }"
-          :title="ui.isSidebarCollapsed ? item.label : ''"
+          :class="{ 'nav-item--active': isActive, 'nav-item--deprecated': item.deprecated }"
+          :title="ui.isSidebarCollapsed ? (item.deprecated ? `${item.label} (Deprecated)` : item.label) : ''"
           @click="navigate"
         >
           <span class="nav-icon">{{ item.icon }}</span>
           <span v-if="!ui.isSidebarCollapsed" class="nav-label">{{ item.label }}</span>
+          <span v-if="!ui.isSidebarCollapsed && item.deprecated" class="deprecated-badge">DEPRECATED</span>
         </div>
       </RouterLink>
     </nav>
@@ -235,6 +237,22 @@ const appVersion = __APP_VERSION__
   flex: 1;
   opacity: 1;
   transition: opacity 0.2s;
+}
+
+.deprecated-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  color: var(--color-warning);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.nav-item--deprecated:hover .deprecated-badge {
+  background-color: color-mix(in srgb, var(--color-warning) 25%, transparent);
 }
 
 /* ── Footer ──────────────────────────────────────────────── */
