@@ -34,14 +34,15 @@ export const useControlsStore = defineStore('controls', () => {
     isLoading.value = true
     error.value = null
     try {
-      // Reuse existing machine secret from storage if possible
-      try {
-        const secret = await storage.getData(SECRET_KEY)
-        machineSecret.value = secret
-      } catch {
-        const newSecret = uuidv4()
-        await storage.setData(SECRET_KEY, newSecret)
-        machineSecret.value = newSecret
+      if (!machineSecret.value) {
+        try {
+          const secret = await storage.getData(SECRET_KEY)
+          machineSecret.value = secret
+        } catch {
+          const newSecret = uuidv4()
+          await storage.setData(SECRET_KEY, newSecret)
+          machineSecret.value = newSecret
+        }
       }
 
       // Load controls

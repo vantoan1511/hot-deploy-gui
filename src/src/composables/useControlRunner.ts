@@ -36,37 +36,52 @@ export function useControlRunner() {
     sessionStore.setScanning(connection.id, true)
 
     try {
+      // Step 1: Resolve Path (Sequential Check)
+      // This will throw if it times out, correctly stopping the scan.
       const resolvedPath = await resolveServicesPath(connection)
       if (!resolvedPath) {
         sessionStore.setServices(connection.id, [])
         return
       }
 
-      // 1. List all entries in the services path
+      // Step 2: Initial Directory List (The "Alive" Check)
       const listRes = await execSSH(connection, `ls -F "${resolvedPath}"`)
+      
+      // If the command failed (not a timeout, but an actual SSH/FS error)
+      if (listRes.exitCode !== 0) {
+        console.warn(`Scan failed for ${connection.name}: ${listRes.output}`)
+        // We don't throw here to avoid potentially messy UI alerts for background scans,
+        // but we STOP further scanning.
+        return
+      }
+
       const entries = listRes.output.split('\n').map(l => l.trim()).filter(Boolean)
 
-      const detected: DetectedService[] = []
-
-      for (const entry of entries) {
+      // Step 3: Parallel Scan (only if Step 2 succeeded)
+      const scanPromises = entries.map(async (entry) => {
         const isDir = entry.endsWith('/')
         const name = entry.replace(/[\/]$/, '')
         const fullPath = `${resolvedPath}/${name}`
 
         if (isDir) {
           // Check for .jar inside the directory (marker)
-          // We look for any .jar file, usually matching the name or just being there
           const jarCheck = await execSSH(connection, `ls "${fullPath}"/*.jar 2>/dev/null | head -1`)
           if (jarCheck.output.trim()) {
-            detected.push(await createDetectedService(connection, name, 'directory', fullPath))
+            return await createDetectedService(connection, name, 'directory', fullPath)
           }
         } else if (name.endsWith('.jar')) {
           // UI service case
-          detected.push(await createDetectedService(connection, name.replace('.jar', ''), 'ui', fullPath))
+          return await createDetectedService(connection, name.replace('.jar', ''), 'ui', fullPath)
         }
-      }
+        return null
+      })
+
+      const results = await Promise.all(scanPromises)
+      const detected = results.filter((s): s is DetectedService => s !== null)
 
       sessionStore.setServices(connection.id, detected)
+    } catch (err) {
+      console.error(`Scan aborted for ${connection.name}:`, err)
     } finally {
       sessionStore.setScanning(connection.id, false)
     }
@@ -81,20 +96,23 @@ export function useControlRunner() {
     type: 'directory' | 'ui',
     path: string
   ): Promise<DetectedService> {
-    const pidsRes = await execSSH(connection, `pgrep -f "${path}"`)
-    const pids = pidsRes.output.split('\n').map(p => parseInt(p.trim())).filter(p => !isNaN(p))
+    // Single SSH call to get both PIDs and the start command of the first PID
+    const res = await execSSH(connection, `pids=$(pgrep -f "${path}"); if [ -n "$pids" ]; then echo "PIDS:$pids"; first=$(echo "$pids" | head -n 1); ps -p "$first" -o args= | head -n 1; fi`)
     
+    const lines = res.output.split('\n').map(l => l.trim()).filter(Boolean)
+    const pidsLine = lines.find(l => l.startsWith('PIDS:'))
+    const pids = pidsLine 
+      ? pidsLine.replace('PIDS:', '').split(/\s+/).map(p => parseInt(p)).filter(p => !isNaN(p))
+      : []
+    
+    // The line after PIDS: (or the only other line) is the command args
+    const startCmd = lines.find(l => !l.startsWith('PIDS:'))
+
     let status: DetectedService['status'] = pids.length > 0 ? 'running' : 'stopped'
     if (path.endsWith('_disabled')) status = 'disabled'
 
-    let startCmd: string | undefined = undefined
-    if (pids.length === 1) {
-      const cmdRes = await execSSH(connection, `ps -p ${pids[0]} -o args=`)
-      startCmd = cmdRes.output.trim()
-    }
-
     return {
-      id: name, // Folders/JARs are unique enough in this context
+      id: name,
       name,
       type,
       path,

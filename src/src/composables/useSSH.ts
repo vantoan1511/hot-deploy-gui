@@ -8,6 +8,18 @@ export interface ExecResult {
 
 // ── Platform ──────────────────────────────────────────────
 
+// ── Execution Helpers ─────────────────────────────────────
+const DEFAULT_TIMEOUT_MS = 10000 // Reduced from 15s to 10s for faster failover
+const TOOL_TIMEOUT_MS = 2000    // Shorter timeout for local tool checks
+
+async function withTimeout<T>(promise: Promise<T>, ms: number = DEFAULT_TIMEOUT_MS, label: string = 'Command'): Promise<T> {
+  let timer: any
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
 function getOS(): string {
   // NL_OS is injected by NeutralinoJS binary: 'Windows' | 'Linux' | 'Darwin'
   return (globalThis as any).NL_OS ?? (navigator.platform.startsWith('Win') ? 'Windows' : 'Linux')
@@ -15,13 +27,20 @@ function getOS(): string {
 
 // ── Tool availability ─────────────────────────────────────
 
+const availabilityCache: Record<string, Promise<boolean>> = {}
+
 async function checkTool(cmd: string): Promise<boolean> {
-  try {
-    const result = await os.execCommand(cmd)
-    return result.exitCode === 0
-  } catch {
-    return false
+  if (!availabilityCache[cmd]) {
+    availabilityCache[cmd] = (async () => {
+      try {
+        const result = await withTimeout(os.execCommand(cmd), TOOL_TIMEOUT_MS, `Check ${cmd}`)
+        return result.exitCode === 0
+      } catch {
+        return false
+      }
+    })()
   }
+  return availabilityCache[cmd]
 }
 
 export async function checkSshpass(): Promise<boolean> {
@@ -127,12 +146,22 @@ async function execSSHWithPassword(deployment: SSHConfig, remoteCmd: string): Pr
   // 1. sshpass (Linux / macOS with Homebrew)
   if (await checkSshpass()) {
     const flags = `-p ${sshPort} -o StrictHostKeyChecking=no -o BatchMode=yes`
-    return toResult(await os.execCommand(`sshpass -p "${password}" ssh ${flags} ${username}@${host} "${wrapped}"`))
+    const res = await withTimeout(
+      os.execCommand(`sshpass -p "${password}" ssh ${flags} ${username}@${host} "${wrapped}"`),
+      DEFAULT_TIMEOUT_MS,
+      'SSH (sshpass)'
+    )
+    return toResult(res)
   }
 
   // 2. plink (Windows with PuTTY installed)
   if (await checkPlink()) {
-    return toResult(await os.execCommand(`plink -P ${sshPort} -pw "${password}" -batch ${username}@${host} "${wrapped}"`))
+    const res = await withTimeout(
+      os.execCommand(`plink -P ${sshPort} -pw "${password}" -batch ${username}@${host} "${wrapped}"`),
+      DEFAULT_TIMEOUT_MS,
+      'SSH (plink)'
+    )
+    return toResult(res)
   }
 
   // 3. SSH_ASKPASS — uses OpenSSH built into Windows 10/11 or any modern Linux/macOS
@@ -142,21 +171,23 @@ async function execSSHWithPassword(deployment: SSHConfig, remoteCmd: string): Pr
     // Omit -o BatchMode=yes here: BatchMode blocks SSH_ASKPASS
     const flags = `-p ${sshPort} -o StrictHostKeyChecking=no -o PasswordAuthentication=yes`
     const cmd = `${prefix} ssh ${flags} ${username}@${host} "${wrapped}"`
-    return toResult(await os.execCommand(cmd))
+    const res = await withTimeout(os.execCommand(cmd), DEFAULT_TIMEOUT_MS, 'SSH (askpass)')
+    return toResult(res)
   })
 }
 
 export async function execSSH(deployment: SSHConfig, remoteCmd: string): Promise<ExecResult> {
-  try {
-    if (deployment.authMethod === 'password') {
-      return await execSSHWithPassword(deployment, remoteCmd)
-    }
-    const keyFlag = deployment.privateKeyPath ? `-i "${deployment.privateKeyPath}"` : ''
-    const flags = `-p ${deployment.sshPort} -o StrictHostKeyChecking=no -o BatchMode=yes ${keyFlag}`.trim()
-    return toResult(await os.execCommand(`ssh ${flags} ${deployment.username}@${deployment.host} "${wrapRemoteCmd(remoteCmd)}"`))
-  } catch (err) {
-    return { output: String(err), exitCode: 1 }
+  if (deployment.authMethod === 'password') {
+    return await execSSHWithPassword(deployment, remoteCmd)
   }
+  const keyFlag = deployment.privateKeyPath ? `-i "${deployment.privateKeyPath}"` : ''
+  const flags = `-p ${deployment.sshPort} -o StrictHostKeyChecking=no -o BatchMode=yes ${keyFlag}`.trim()
+  const res = await withTimeout(
+    os.execCommand(`ssh ${flags} ${deployment.username}@${deployment.host} "${wrapRemoteCmd(remoteCmd)}"`),
+    DEFAULT_TIMEOUT_MS,
+    'SSH Command'
+  )
+  return toResult(res)
 }
 
 // ── SCP execution ─────────────────────────────────────────
@@ -167,12 +198,22 @@ async function execSCPWithPassword(deployment: SSHConfig, localPath: string, rem
   // 1. sshpass
   if (await checkSshpass()) {
     const flags = `-P ${sshPort} -o StrictHostKeyChecking=no`
-    return toResult(await os.execCommand(`sshpass -p "${password}" scp ${flags} "${localPath}" ${username}@${host}:"${remoteDest}"`))
+    const res = await withTimeout(
+      os.execCommand(`sshpass -p "${password}" scp ${flags} "${localPath}" ${username}@${host}:"${remoteDest}"`),
+      DEFAULT_TIMEOUT_MS,
+      'SCP (sshpass)'
+    )
+    return toResult(res)
   }
 
   // 2. pscp (PuTTY SCP, bundled with PuTTY)
   if (await checkTool('pscp -V')) {
-    return toResult(await os.execCommand(`pscp -P ${sshPort} -pw "${password}" -batch "${localPath}" ${username}@${host}:"${remoteDest}"`))
+    const res = await withTimeout(
+      os.execCommand(`pscp -P ${sshPort} -pw "${password}" -batch "${localPath}" ${username}@${host}:"${remoteDest}"`),
+      DEFAULT_TIMEOUT_MS,
+      'SCP (pscp)'
+    )
+    return toResult(res)
   }
 
   // 3. SSH_ASKPASS fallback — scp honours SSH_ASKPASS just like ssh does
@@ -180,21 +221,23 @@ async function execSCPWithPassword(deployment: SSHConfig, localPath: string, rem
     const prefix = askpassEnvPrefix(askpassPath)
     const flags = `-P ${sshPort} -o StrictHostKeyChecking=no -o PasswordAuthentication=yes`
     const cmd = `${prefix} scp ${flags} "${localPath}" ${username}@${host}:"${remoteDest}"`
-    return toResult(await os.execCommand(cmd))
+    const res = await withTimeout(os.execCommand(cmd), DEFAULT_TIMEOUT_MS, 'SCP (askpass)')
+    return toResult(res)
   })
 }
 
 export async function execSCP(deployment: SSHConfig, localPath: string, remoteDest: string): Promise<ExecResult> {
-  try {
-    if (deployment.authMethod === 'password') {
-      return await execSCPWithPassword(deployment, localPath, remoteDest)
-    }
-    const keyFlag = deployment.privateKeyPath ? `-i "${deployment.privateKeyPath}"` : ''
-    const flags = `-P ${deployment.sshPort} -o StrictHostKeyChecking=no ${keyFlag}`.trim()
-    return toResult(await os.execCommand(`scp ${flags} "${localPath}" ${deployment.username}@${deployment.host} "${remoteDest}"`))
-  } catch (err) {
-    return { output: String(err), exitCode: 1 }
+  if (deployment.authMethod === 'password') {
+    return await execSCPWithPassword(deployment, localPath, remoteDest)
   }
+  const keyFlag = deployment.privateKeyPath ? `-i "${deployment.privateKeyPath}"` : ''
+  const flags = `-P ${deployment.sshPort} -o StrictHostKeyChecking=no ${keyFlag}`.trim()
+  const res = await withTimeout(
+    os.execCommand(`scp ${flags} "${localPath}" ${deployment.username}@${deployment.host} "${remoteDest}"`),
+    DEFAULT_TIMEOUT_MS,
+    'SCP Command'
+  )
+  return toResult(res)
 }
 
 // ── Command builders (kept for diagnostics / external use) ─

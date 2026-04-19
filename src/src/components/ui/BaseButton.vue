@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ref, watch, onUnmounted } from 'vue'
+
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
 export type ButtonSize = 'sm' | 'md' | 'lg'
 
@@ -15,16 +17,35 @@ const props = withDefaults(defineProps<{
   loading: false,
   type: 'button',
 })
+
+const isStalled = ref(false)
+let stallTimer: any = null
+
+watch(() => props.loading, (newVal) => {
+  if (stallTimer) clearTimeout(stallTimer)
+  isStalled.value = false
+  if (newVal) {
+    stallTimer = setTimeout(() => {
+      isStalled.value = true
+    }, 10000) // 10s warning
+  }
+})
+
+onUnmounted(() => {
+  if (stallTimer) clearTimeout(stallTimer)
+})
 </script>
 
 <template>
   <button
     :type="props.type"
-    :disabled="props.disabled || props.loading"
-    :class="['btn', `btn--${props.variant}`, `btn--${props.size}`, { 'btn--loading': props.loading }]"
+    :disabled="props.disabled || (props.loading && !isStalled)"
+    :class="['btn', `btn--${props.variant}`, `btn--${props.size}`, { 'btn--loading': props.loading, 'btn--stalled': isStalled }]"
+    :title="isStalled ? 'This is taking longer than expected. Click again to override or refresh the page.' : undefined"
   >
     <span v-if="props.loading" class="btn-spinner" aria-hidden="true" />
-    <slot />
+    <slot v-if="!isStalled" />
+    <span v-else>Taking too long?</span>
   </button>
 </template>
 
