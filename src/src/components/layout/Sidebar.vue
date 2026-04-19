@@ -35,12 +35,18 @@ const appVersion = __APP_VERSION__
         v-for="item in navItems"
         :key="item.to"
         :to="item.to"
-        class="nav-item"
-        active-class="nav-item--active"
-        exact-active-class="nav-item--exact-active"
+        custom
+        v-slot="{ navigate, isActive }"
       >
-        <span class="nav-icon">{{ item.icon }}</span>
-        <span class="nav-label">{{ item.label }}</span>
+        <div
+          role="link"
+          class="nav-item"
+          :class="{ 'nav-item--active': isActive }"
+          @click="navigate"
+        >
+          <span class="nav-icon">{{ item.icon }}</span>
+          <span class="nav-label">{{ item.label }}</span>
+        </div>
       </RouterLink>
     </nav>
 
