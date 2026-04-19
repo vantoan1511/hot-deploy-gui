@@ -33,6 +33,53 @@ export interface Deployment {
   description?: string
 }
 
+// ── Control Configuration ───────────────────────────────────
+// Server-wide management configuration
+
+export interface ControlConnection {
+  id: string               // UUID v4
+  name: string             // Human-readable label
+  host: string             // Remote hostname or IP
+  username: string         // SSH login username
+  authMethod: AuthMethod
+  privateKeyPath?: string  // Absolute local path to SSH private key
+  password?: string        // Encrypted SSH password
+  sshPort: number          // Default: 22
+  
+  // Application specifics
+  applicationName: string      // e.g. "my-app"
+  applicationHttpPort?: number
+  applicationHttpsPort?: number
+  
+  // Path specifics
+  rootDeploymentPath: string   // Absolute base, e.g. "/opt/my-app"
+  servicesPath: string         // Absolute, relative, or wildcard
+  logsPath: string             // Absolute or relative, default "logs"
+  
+  // Overrides for dynamic services
+  serviceOverrides: Record<string, ControlServiceOverride> // serviceId (folder name) -> overrides
+
+  createdAt: string
+  updatedAt: string
+  tags: string[]
+}
+
+export interface ControlServiceOverride {
+  startCommand?: string
+  localJarPath?: string
+}
+
+export interface DetectedService {
+  id: string               // Derived from path/name
+  name: string             // Friendly name
+  type: 'directory' | 'ui'
+  path: string             // Full remote path
+  status: 'running' | 'stopped' | 'disabled' | 'error'
+  pids: number[]
+  detectedStartCommand?: string
+  lastChecked: number
+}
+
 // ── App Settings ────────────────────────────────────────────
 
 export interface AppSettings {
@@ -63,6 +110,15 @@ export interface DeploySession {
   resolvedDeployPath: string | null          // wildcard expanded at runtime
   resolvedSvcPaths: Record<string, string>   // serviceId → resolved remote path
   services: Service[]                        // snapshot of services at session start
+}
+
+// ── Control Session ─────────────────────────────────────────
+
+export interface ControlSession {
+  connectionId: string
+  isScanning: boolean
+  lastScanAt: number | null
+  services: DetectedService[]
 }
 
 // ── Import / Export ─────────────────────────────────────────

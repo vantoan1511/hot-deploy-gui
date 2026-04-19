@@ -9,6 +9,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Deployments',  to: '/',             icon: '⚡' },
+  { label: 'Controls',     to: '/controls',      icon: '🎮' },
   { label: 'Release Tool', to: '/release-tool', icon: '🔖' },
   { label: 'Devtools+',    to: '/devtools',     icon: '🛠' },
   { label: 'Settings',     to: '/settings',     icon: '⚙' },

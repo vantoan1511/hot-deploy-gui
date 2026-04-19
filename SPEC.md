@@ -39,6 +39,26 @@ A deployment is the central data entity of the app. It contains:
 | `tags` | `string[]` | Optional user-defined labels for filtering |
 | `description` | `string?` | Optional free-text notes |
 
+### 2.3 Control Connection
+
+A control connection represents a remote deployment server for discovery and management. It contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | UUID v4 |
+| `name` | `string` | Label for the server |
+| `applicationName` | `string` | Primary app name, used for general log detection |
+| `applicationHttpPort` | `number?` | Metadata for easy access |
+| `applicationHttpsPort` | `number?` | Metadata for easy access |
+| `rootDeploymentPath` | `string` | Absolute base path on the server |
+| `servicesPath` | `string` | Path to browse for services (supports wildcards/relative) |
+| `logsPath` | `string` | Path to logs (relative to root, default "logs") |
+| `serviceOverrides` | `Record` | Stores manual start commands or local JAR paths per detected service |
+| `authMethod` | `string` | Same as Deployment |
+| `host`, `username`, `sshPort` | | Same as Deployment |
+
+---
+
 ### 2.2 Service
 
 Each entry in `services` represents an independently deployable unit within a deployment:
@@ -128,6 +148,27 @@ Additional tool integrations are embedded in the sidebar:
 |---|---|---|
 | **Release Tool** | `/release-tool` | Opens [Orchestrix Release Tool](https://releasetoo1.netlify.app/) in the system default browser via `Neutralino.os.open()`. Iframe embedding is not used because `showDirectoryPicker` is blocked in cross-origin iframes (Chrome 94+). |
 | **Devtools+** | `/devtools` | Embedded full-height iframe pointing to `https://devtoo1s.vercel.app/`. |
+
+### 3.6 Remote Server Controls (Controls)
+
+Controls provide a high-level view of a deployment server by scanning the filesystem to discover active components.
+
+#### 3.6.1 Service Discovery
+- **Logic:** Scans `servicesPath`.
+- **Directory detection:** Folders are services if they contain a `.jar` file.
+- **UI detection:** Standalone `.jar` files in `servicesPath` are treated as UI services.
+- **PID Detection:** Uses `pgrep -f <path>` to find running instances and status.
+
+#### 3.6.2 Interaction Patterns
+- **Start/Restart:** Uses detected start command via `ps` or manual override.
+- **Stop:** Targeted `kill` of the single detected PID.
+- **Disable:** Moves service directory to `*_disabled` and kills the process.
+- **Hot Deploy:** Uploads local JAR and restarts; remembers local path for future use.
+
+#### 3.6.3 Log Monitoring
+- **General Log:** Detects at `logsPath/applicationName.log`.
+- **Service Logs:** Detects at `logsPath/serviceName.log`.
+- **Follow Mode:** Auto-poll via `tail` every second (configurable).
 
 ---
 

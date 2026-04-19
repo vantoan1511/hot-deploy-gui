@@ -45,6 +45,26 @@ const router = createRouter({
       name: 'devtools',
       component: () => import('../views/DevtoolsView.vue'),
     },
+    {
+      path: '/controls',
+      name: 'controls',
+      component: () => import('../views/ControlsView.vue'),
+    },
+    {
+      path: '/controls/new',
+      name: 'control-new',
+      component: () => import('../views/ControlFormView.vue'),
+    },
+    {
+      path: '/controls/:id',
+      name: 'control-detail',
+      component: () => import('../views/ControlDetailView.vue'),
+    },
+    {
+      path: '/controls/:id/edit',
+      name: 'control-edit',
+      component: () => import('../views/ControlFormView.vue'),
+    },
   ],
 })
 

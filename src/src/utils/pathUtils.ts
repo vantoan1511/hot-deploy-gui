@@ -15,3 +15,21 @@ export function remoteJarFilename(service: Service): string {
 export function remoteServiceLogPath(remoteLogPath: string, serviceName: string): string {
   return `${remoteLogPath.replace(/\/$/, '')}/${serviceName}.log`
 }
+
+/**
+ * Resolves a remote path.
+ * If 'path' is relative (doesn't start with /), it's resolved against 'root'.
+ * Removes trailing slashes for consistency.
+ */
+export function resolveRemotePath(root: string, path: string): string {
+  const cleanRoot = root.replace(/\/+$/, '')
+  let cleanPath = path.trim()
+
+  if (!cleanPath.startsWith('/')) {
+    // Handle leading ./ or just the name
+    cleanPath = cleanPath.replace(/^\.\//, '')
+    return `${cleanRoot}/${cleanPath}`.replace(/\/+$/, '')
+  }
+
+  return cleanPath.replace(/\/+$/, '')
+}
