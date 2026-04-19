@@ -30,10 +30,43 @@ const DeploymentSchema = z.object({
   description: z.string().optional(),
 })
 
+const ServiceOverrideSchema = z.object({
+  startCommand: z.string().optional(),
+  stopCommand: z.string().optional(),
+  localJarPath: z.string().optional(),
+})
+
+const ControlConnectionSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  host: z.string().min(1),
+  username: z.string().min(1),
+  authMethod: z.enum(['key', 'password']),
+  sshPort: z.number().int().min(1).max(65535),
+  applicationName: z.string(),
+  applicationHttpPort: z.number().optional(),
+  applicationHttpsPort: z.number().optional(),
+  rootDeploymentPath: z.string(),
+  servicesPath: z.string(),
+  logsPath: z.string(),
+  tags: z.array(z.string()),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  privateKeyPath: z.string().optional(),
+  password: z.string().optional(),
+  serviceOverrides: z.record(ServiceOverrideSchema).optional(),
+  // Hot Deploy
+  localPackagePath: z.string().optional(),
+  preCommands: z.array(z.string()).optional(),
+  postCommands: z.array(z.string()).optional(),
+  runPostOnFailure: z.boolean().optional(),
+})
+
 const ExportBundleSchema = z.object({
   version: z.literal('1'),
   exportedAt: z.string().datetime(),
-  deployments: z.array(DeploymentSchema),
+  deployments: z.array(DeploymentSchema).optional(),
+  controls: z.array(ControlConnectionSchema).optional(),
 })
 
 // ── Legacy Schema (pre-multi-service) ────────────────────────
@@ -67,7 +100,7 @@ const LegacyExportBundleSchema = z.object({
 
 type LegacyDeployment = z.infer<typeof LegacyDeploymentSchema>
 
-function convertLegacy(legacy: LegacyDeployment): Deployment {
+function convertLegacy(legacy: LegacyDeployment): any {
   const { serviceName, localJarPath, startCommand, stopCommand, ...rest } = legacy
   return {
     ...rest,
@@ -84,19 +117,23 @@ function convertLegacy(legacy: LegacyDeployment): Deployment {
 // ── Export ───────────────────────────────────────────────────
 
 /**
- * Serialize deployments to a JSON export bundle string.
+ * Serialize configs to a JSON export bundle string.
  * Passwords are stripped unless the caller pre-encrypts them.
  */
 export function serializeExport(
-  deployments: Deployment[],
+  data: { deployments?: any[], controls?: any[] },
   includePasswords = false
 ): string {
   const bundle: ExportBundle = {
     version: '1',
     exportedAt: new Date().toISOString(),
-    deployments: deployments.map(d => ({
+    deployments: data.deployments?.map(d => ({
       ...d,
       password: includePasswords ? d.password : undefined,
+    })),
+    controls: data.controls?.map(c => ({
+      ...c,
+      password: includePasswords ? c.password : undefined,
     })),
   }
   return JSON.stringify(bundle, null, 2)
@@ -105,7 +142,8 @@ export function serializeExport(
 // ── Import ───────────────────────────────────────────────────
 
 export interface ImportResult {
-  deployments: Deployment[]
+  deployments: any[]
+  controls: any[]
   errors: string[]
   converted?: number
 }
@@ -115,23 +153,27 @@ export function parseImport(raw: string): ImportResult {
   try {
     parsed = JSON.parse(raw)
   } catch {
-    return { deployments: [], errors: ['Invalid JSON: could not parse file.'] }
+    return { deployments: [], controls: [], errors: ['Invalid JSON: could not parse file.'] }
   }
 
   const result = ExportBundleSchema.safeParse(parsed)
   if (result.success) {
-    return { deployments: result.data.deployments, errors: [] }
+    return { 
+      deployments: result.data.deployments || [], 
+      controls: result.data.controls || [],
+      errors: [] 
+    }
   }
 
   // Try legacy single-service format and auto-convert
   const legacy = LegacyExportBundleSchema.safeParse(parsed)
   if (legacy.success) {
     const deployments = legacy.data.deployments.map(convertLegacy)
-    return { deployments, errors: [], converted: deployments.length }
+    return { deployments, controls: [], errors: [], converted: deployments.length }
   }
 
   const errors = result.error.issues.map(
     (e: ZodIssue) => `${String(e.path.join('.'))}: ${e.message}`
   )
-  return { deployments: [], errors }
+  return { deployments: [], controls: [], errors }
 }

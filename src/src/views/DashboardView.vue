@@ -117,6 +117,11 @@ async function handleImport() {
       return
     }
 
+    if (deployments.length === 0) {
+      showFeedback('error', 'No deployments found in the imported file.')
+      return
+    }
+
     if (converted) {
       showFeedback('success', `Legacy format detected — converted ${converted} deployment(s) to multi-service format.`)
       await new Promise(r => setTimeout(r, 1800))

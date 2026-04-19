@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { storage } from '@neutralinojs/lib'
 import { v4 as uuidv4 } from 'uuid'
-import type { ControlConnection } from '@/types/deployment'
+import type { ControlConnection, CollisionDecision } from '@/types/deployment'
 import { encryptPassword, decryptPassword } from '@/utils/crypto'
 
 const STORAGE_KEY = 'controls'
@@ -145,6 +145,41 @@ export const useControlsStore = defineStore('controls', () => {
     await update(id, { serviceOverrides: overrides })
   }
 
+  async function importMerge(
+    incoming: ControlConnection[],
+    decisions: CollisionDecision[],
+  ): Promise<{ added: number; replaced: number; skipped: number }> {
+    const decisionMap = new Map(decisions.map(d => [d.id, d.action]))
+    let added = 0, replaced = 0, skipped = 0
+
+    for (const item of incoming) {
+      const existingIdx = controls.value.findIndex(d => d.id === item.id)
+      if (existingIdx === -1) {
+        controls.value.push(item)
+        added++
+      } else {
+        const action = decisionMap.get(item.id) ?? 'skip'
+        if (action === 'replace') {
+          controls.value[existingIdx] = item
+          replaced++
+        } else if (action === 'keep-both') {
+          controls.value.push({
+            ...item,
+            id: uuidv4(),
+            name: `${item.name} (Imported)`,
+            updatedAt: new Date().toISOString(),
+          })
+          added++
+        } else {
+          skipped++
+        }
+      }
+    }
+
+    await persist()
+    return { added, replaced, skipped }
+  }
+
   return {
     controls,
     sortedControls,
@@ -158,5 +193,6 @@ export const useControlsStore = defineStore('controls', () => {
     remove,
     clone,
     updateServiceOverride,
+    importMerge,
   }
 })

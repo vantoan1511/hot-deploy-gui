@@ -134,5 +134,21 @@ export interface ControlSession {
 export interface ExportBundle {
   version: '1'
   exportedAt: string   // ISO 8601
-  deployments: Deployment[]
+  deployments?: Deployment[]
+  controls?: ControlConnection[]
+}
+
+export type CollisionAction = 'replace' | 'keep-both' | 'skip'
+
+export interface CollisionDecision {
+  id: string
+  action: CollisionAction
+}
+
+export interface CollisionItem {
+  id: string
+  name: string
+  host: string
+  username: string
+  updatedAt: string
 }

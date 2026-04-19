@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { reactive, computed } from 'vue'
-import type { Deployment } from '@/types/deployment'
-import type { CollisionAction, CollisionDecision } from '@/stores/deployments'
+import type { CollisionItem, CollisionAction, CollisionDecision } from '@/types/deployment'
 import BaseButton from './BaseButton.vue'
 
 const props = defineProps<{
-  conflicts: Array<{ incoming: Deployment; existing: Deployment }>
+  conflicts: Array<{ incoming: CollisionItem; existing: CollisionItem }>
 }>()
 
 const emit = defineEmits<{
@@ -44,7 +43,7 @@ function fmtDate(iso: string) {
         <div class="dialog-header">
           <h2 class="dialog-title">Import Conflicts</h2>
           <p class="dialog-sub">
-            {{ conflicts.length }} deployment{{ conflicts.length !== 1 ? 's' : '' }}
+            {{ conflicts.length }} item{{ conflicts.length !== 1 ? 's' : '' }}
             share IDs with existing entries. Choose an action for each.
           </p>
         </div>

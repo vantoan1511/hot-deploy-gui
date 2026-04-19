@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { storage } from '@neutralinojs/lib'
 import { v4 as uuidv4 } from 'uuid'
-import type { Deployment } from '@/types/deployment'
+import type { Deployment, CollisionDecision } from '@/types/deployment'
 import { encryptPassword, decryptPassword } from '@/utils/crypto'
 
 const STORAGE_KEY = 'deployments'
@@ -192,10 +192,3 @@ export const useDeploymentsStore = defineStore('deployments', () => {
     importMerge,
   }
 })
-
-export type CollisionAction = 'replace' | 'keep-both' | 'skip'
-
-export interface CollisionDecision {
-  id: string
-  action: CollisionAction
-}

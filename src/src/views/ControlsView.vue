@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { filesystem } from '@neutralinojs/lib'
 import { useControlsStore } from '@/stores/controls'
-import type { ControlConnection } from '@/types/deployment'
+import type { ControlConnection, CollisionDecision } from '@/types/deployment'
+import { parseImport, serializeExport } from '@/utils/exportImport'
+import { useOpenDialog, useSaveDialog } from '@/composables/useFileDialog'
 import ControlCard from '@/components/controls/ControlCard.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
+import ImportCollisionDialog from '@/components/ui/ImportCollisionDialog.vue'
 
 const router = useRouter()
 const store = useControlsStore()
@@ -28,10 +32,8 @@ onMounted(async () => {
 async function handleClone(id: string) {
   try {
     const newControl = await store.clone(id)
-    // Optional: Navigate to edit or detail of the new one
-    // router.push(`/controls/${newControl.id}/edit`)
   } catch (err) {
-    alert(`Failed to clone: ${err}`)
+    showFeedback('error', `Clone failed: ${err}`)
   }
 }
 
@@ -44,6 +46,110 @@ async function handleDelete(id: string) {
   } catch (err) {
     console.error(`Failed to delete: ${err}`)
   }
+}
+
+// ── Feedback ─────────────────────────────────────────────
+const feedback = ref<{ type: 'success' | 'error'; message: string } | null>(null)
+let feedbackTimer: any = null
+
+function showFeedback(type: 'success' | 'error', message: string) {
+  if (feedbackTimer) clearTimeout(feedbackTimer)
+  feedback.value = { type, message }
+  feedbackTimer = setTimeout(() => { feedback.value = null }, 4000)
+}
+
+// ── Export ───────────────────────────────────────────────
+const isExporting = ref(false)
+
+async function handleExportAll() {
+  if (store.controls.length === 0) {
+    showFeedback('error', 'No controls to export.')
+    return
+  }
+  isExporting.value = true
+  try {
+    const path = await useSaveDialog({
+      title: 'Export Controls',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      defaultPath: 'hot-deploy-controls.json',
+    })
+    if (!path) return
+    const json = serializeExport({ controls: store.controls })
+    await filesystem.writeFile(path, json)
+    showFeedback('success', `Exported ${store.controls.length} control(s).`)
+  } catch (err) {
+    showFeedback('error', `Export failed: ${err}`)
+  } finally {
+    isExporting.value = false
+  }
+}
+
+// ── Import ───────────────────────────────────────────────
+const isImporting = ref(false)
+const pendingImport = ref<ControlConnection[] | null>(null)
+const importConflicts = ref<Array<{ incoming: ControlConnection; existing: ControlConnection }> | null>(null)
+
+async function handleImport() {
+  isImporting.value = true
+  try {
+    const path = await useOpenDialog({
+      title: 'Import Controls',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (!path) return
+
+    const raw = await filesystem.readFile(path)
+    const { deployments, controls, errors } = parseImport(raw)
+
+    if (errors.length > 0) {
+      showFeedback('error', `Invalid file: ${errors[0]}`)
+      return
+    }
+
+    if (controls.length === 0) {
+      showFeedback('error', 'No controls found in the imported file.')
+      return
+    }
+
+    const collisions = controls
+      .filter(c => store.getById(c.id) !== undefined)
+      .map(c => ({ incoming: c, existing: store.getById(c.id)! }))
+
+    if (collisions.length > 0) {
+      pendingImport.value = controls
+      importConflicts.value = collisions
+    } else {
+      await applyImport(controls, [])
+    }
+  } catch (err) {
+    showFeedback('error', `Import failed: ${err}`)
+  } finally {
+    isImporting.value = false
+  }
+}
+
+async function handleCollisionConfirm(decisions: CollisionDecision[]) {
+  if (!pendingImport.value) return
+  try {
+    await applyImport(pendingImport.value, decisions)
+  } finally {
+    importConflicts.value = null
+    pendingImport.value = null
+  }
+}
+
+async function handleCollisionCancel() {
+  importConflicts.value = null
+  pendingImport.value = null
+}
+
+async function applyImport(items: ControlConnection[], decisions: CollisionDecision[]) {
+  const { added, replaced, skipped } = await store.importMerge(items, decisions)
+  const parts: string[] = []
+  if (added > 0) parts.push(`${added} added`)
+  if (replaced > 0) parts.push(`${replaced} replaced`)
+  if (skipped > 0) parts.push(`${skipped} skipped`)
+  showFeedback('success', `Import complete: ${parts.join(', ')}.`)
 }
 </script>
 
@@ -68,6 +174,18 @@ async function handleDelete(id: string) {
           placeholder="Search by name, host, or application..." />
         <button v-if="search" class="clear-search" @click="search = ''">×</button>
       </div>
+      <div class="bar-actions">
+        <BaseButton variant="secondary" :loading="isImporting" @click="handleImport">
+          Import
+        </BaseButton>
+        <BaseButton variant="secondary" :loading="isExporting" @click="handleExportAll">
+          Export All
+        </BaseButton>
+      </div>
+    </div>
+
+    <div v-if="feedback" class="feedback-banner" :class="feedback.type">
+      {{ feedback.message }}
     </div>
 
     <main class="content-area">
@@ -98,6 +216,13 @@ async function handleDelete(id: string) {
         <ControlCard v-for="c in filtered" :key="c.id" :control="c" @clone="handleClone" @delete="handleDelete" />
       </div>
     </main>
+
+    <ImportCollisionDialog
+      v-if="importConflicts"
+      :conflicts="importConflicts"
+      @confirm="handleCollisionConfirm"
+      @cancel="handleCollisionCancel"
+    />
   </div>
 </template>
 
@@ -179,6 +304,32 @@ async function handleDelete(id: string) {
   cursor: pointer;
 }
 
+.bar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.feedback-banner {
+  padding: 10px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  animation: fade-in 0.15s ease;
+}
+
+.feedback-banner.success {
+  background-color: color-mix(in srgb, var(--color-success) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-success) 40%, transparent);
+  color: var(--color-success);
+}
+
+.feedback-banner.error {
+  background-color: color-mix(in srgb, var(--color-error) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-error) 40%, transparent);
+  color: var(--color-error);
+}
+
 .controls-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -205,9 +356,12 @@ async function handleDelete(id: string) {
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .empty-icon {
