@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { useSettingsStore } from '@/stores/settings'
 import { onMounted } from 'vue'
 import Sidebar from './Sidebar.vue'
-import { useSettingsStore } from '@/stores/settings'
 
 const settings = useSettingsStore()
 onMounted(() => settings.init())

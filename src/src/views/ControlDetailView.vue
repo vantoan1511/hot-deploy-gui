@@ -11,7 +11,7 @@ import type { ControlConnection, DetectedService } from '@/types/deployment'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ServiceControlItem from '@/components/controls/ServiceControlItem.vue'
 import LogViewer from '@/components/controls/LogViewer.vue'
-import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import BaseConfirmDialog from '@/components/ui/BaseConfirmDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -249,7 +249,7 @@ async function handleHotDeploy(service: DetectedService) {
     </div>
 
     <!-- Confirm Dialog: Disable -->
-    <ConfirmDialog
+    <BaseConfirmDialog
       v-if="confirmDisable"
       title="Disable Service"
       :message="`Are you sure you want to disable '${confirmDisable.name}'? This will rename its directory and stop the process.`"

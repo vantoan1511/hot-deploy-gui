@@ -39,12 +39,10 @@ async function handleDelete(id: string) {
   const control = store.getById(id)
   if (!control) return
 
-  if (confirm(`Are you sure you want to delete "${control.name}"? This action cannot be undone.`)) {
-    try {
-      await store.remove(id)
-    } catch (err) {
-      alert(`Failed to delete: ${err}`)
-    }
+  try {
+    await store.remove(id)
+  } catch (err) {
+    console.error(`Failed to delete: ${err}`)
   }
 }
 </script>
@@ -66,12 +64,8 @@ async function handleDelete(id: string) {
     <div class="filter-bar">
       <div class="search-container">
         <span class="search-icon">🔍</span>
-        <input
-          v-model="search"
-          type="text"
-          class="search-input"
-          placeholder="Search by name, host, or application..."
-        />
+        <input v-model="search" type="text" class="search-input"
+          placeholder="Search by name, host, or application..." />
         <button v-if="search" class="clear-search" @click="search = ''">×</button>
       </div>
     </div>
@@ -101,13 +95,7 @@ async function handleDelete(id: string) {
       </div>
 
       <div v-else class="controls-grid">
-        <ControlCard
-          v-for="c in filtered"
-          :key="c.id"
-          :control="c"
-          @clone="handleClone"
-          @delete="handleDelete"
-        />
+        <ControlCard v-for="c in filtered" :key="c.id" :control="c" @clone="handleClone" @delete="handleDelete" />
       </div>
     </main>
   </div>
@@ -217,7 +205,9 @@ async function handleDelete(id: string) {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .empty-icon {

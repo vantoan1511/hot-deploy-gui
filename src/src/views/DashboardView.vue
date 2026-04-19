@@ -8,7 +8,7 @@ import type { Deployment } from '@/types/deployment'
 import { parseImport, serializeExport } from '@/utils/exportImport'
 import { useOpenDialog, useSaveDialog } from '@/composables/useFileDialog'
 import DeploymentCard from '@/components/deployments/DeploymentCard.vue'
-import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import BaseConfirmDialog from '@/components/ui/BaseConfirmDialog.vue'
 import ImportCollisionDialog from '@/components/ui/ImportCollisionDialog.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 
@@ -250,7 +250,7 @@ async function applyImport(deployments: Deployment[], decisions: CollisionDecisi
     </main>
 
     <!-- Confirm Delete Dialog -->
-    <ConfirmDialog
+    <BaseConfirmDialog
       v-if="deleteTarget"
       title="Delete Configuration"
       :message="`Are you sure you want to delete '${store.getById(deleteTarget)?.name}'? This action cannot be undone.`"

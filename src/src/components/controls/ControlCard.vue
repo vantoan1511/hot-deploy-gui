@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import TagBadge from '@/components/ui/TagBadge.vue'
+import type { ControlConnection } from '@/types/deployment'
+import { useConfirm } from "primevue/useconfirm"
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { ControlConnection } from '@/types/deployment'
-import TagBadge from '@/components/ui/TagBadge.vue'
 import BaseButton from '../ui/BaseButton.vue'
 
 const props = defineProps<{
@@ -16,6 +17,8 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const menuOpen = ref(false)
+
+const confirm = useConfirm();
 
 function handleClick() {
   router.push(`/controls/${props.control.id}`)
@@ -38,7 +41,17 @@ function handleClone(e: Event) {
 
 function handleDelete(e: Event) {
   e.stopPropagation()
-  emit('delete', props.control.id)
+  confirm.require({
+    message: 'Are you sure you want to delete this control?',
+    header: 'Confirm Delete',
+    icon: 'pi pi-exclamation-triangle',
+    accept: () => {
+      emit('delete', props.control.id)
+    },
+    reject: () => {
+      // Do nothing
+    }
+  });
   closeMenu()
 }
 </script>
@@ -52,7 +65,7 @@ function handleDelete(e: Event) {
           {{ control.authMethod === 'key' ? 'SSH Key' : 'Pass' }}
         </div>
       </div>
-      
+
       <!-- Context Actions -->
       <div class="card-menu-box">
         <button class="icon-btn" title="More Actions" @click="toggleMenu">⋯</button>
@@ -160,7 +173,9 @@ function handleDelete(e: Event) {
   gap: 6px;
 }
 
-.server-info, .app-info, .path-info {
+.server-info,
+.app-info,
+.path-info {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -228,8 +243,15 @@ function handleDelete(e: Event) {
 }
 
 @keyframes pop-in {
-  from { opacity: 0; transform: scale(0.95); }
-  to   { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .dropdown-item {

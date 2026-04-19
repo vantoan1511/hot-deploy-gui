@@ -7,7 +7,7 @@ import { serializeExport } from '@/utils/exportImport'
 import { useSaveDialog } from '@/composables/useFileDialog'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import TagBadge from '@/components/ui/TagBadge.vue'
-import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import BaseConfirmDialog from '@/components/ui/BaseConfirmDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -171,7 +171,7 @@ async function handleExport() {
       </div>
 
       <!-- Delete Confirmation -->
-      <ConfirmDialog
+      <BaseConfirmDialog
         v-if="showDeleteConfirm"
         title="Delete Configuration"
         :message="`Are you sure you want to delete '${deployment.name}'? This action cannot be undone.`"
