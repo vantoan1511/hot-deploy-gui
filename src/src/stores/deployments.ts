@@ -13,6 +13,7 @@ export const useDeploymentsStore = defineStore('deployments', () => {
   const deployments = ref<Deployment[]>([])
   const machineSecret = ref<string | null>(null)
   const isLoading = ref(false)
+  const isLoaded = ref(false)
   const error = ref<string | null>(null)
 
   // ── Getters ──────────────────────────────────────────────
@@ -27,7 +28,9 @@ export const useDeploymentsStore = defineStore('deployments', () => {
   }
 
   // ── Persistence ──────────────────────────────────────────
-  async function load(): Promise<void> {
+  async function load(force = false): Promise<void> {
+    if (isLoading.value) return
+    if (isLoaded.value && !force) return
     isLoading.value = true
     error.value = null
     try {
@@ -44,9 +47,11 @@ export const useDeploymentsStore = defineStore('deployments', () => {
       // Load deployments
       const raw = await storage.getData(STORAGE_KEY)
       deployments.value = JSON.parse(raw) as Deployment[]
+      isLoaded.value = true
     } catch {
       // First launch — no data yet
       deployments.value = []
+      isLoaded.value = true
     } finally {
       isLoading.value = false
     }

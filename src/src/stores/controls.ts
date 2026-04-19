@@ -13,6 +13,7 @@ export const useControlsStore = defineStore('controls', () => {
   const controls = ref<ControlConnection[]>([])
   const machineSecret = ref<string | null>(null)
   const isLoading = ref(false)
+  const isLoaded = ref(false)
   const error = ref<string | null>(null)
 
   // ── Getters ──────────────────────────────────────────────────
@@ -27,7 +28,9 @@ export const useControlsStore = defineStore('controls', () => {
   }
 
   // ── Persistence ──────────────────────────────────────────────
-  async function load(): Promise<void> {
+  async function load(force = false): Promise<void> {
+    if (isLoading.value) return
+    if (isLoaded.value && !force) return
     isLoading.value = true
     error.value = null
     try {
@@ -44,9 +47,11 @@ export const useControlsStore = defineStore('controls', () => {
       // Load controls
       const raw = await storage.getData(STORAGE_KEY)
       controls.value = JSON.parse(raw) as ControlConnection[]
+      isLoaded.value = true
     } catch {
       // First launch or no data yet
       controls.value = []
+      isLoaded.value = true
     } finally {
       isLoading.value = false
     }

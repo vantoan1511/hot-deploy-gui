@@ -13,6 +13,9 @@ import Aura from '@primeuix/themes/aura';
 
 import ConfirmationService from 'primevue/confirmationservice';
 
+// Initialise NeutralinoJS before Vue mounts to ensure APIs are ready
+init()
+
 const app = createApp(App)
 
 app.use(createPinia())
@@ -26,6 +29,3 @@ app.use(ConfirmationService);
 app.directive('click-outside', clickOutside)
 
 app.mount('#app')
-
-// Initialise NeutralinoJS after Vue mounts
-init()
