@@ -1,11 +1,14 @@
 {
   "applicationId": "com.github.vantoan1511.hotdeploygui",
+  "applicationName": "Hot Deploy GUI",
+  "author": "Toan Nguyen",
   "version": "1.1.1",
   "defaultMode": "window",
   "documentRoot": "/src/dist/",
   "url": "/",
   "enableServer": true,
   "enableNativeAPI": true,
+  "singlePageServe": true,
   "tokenSecurity": "one-time",
   "nativeAllowList": [
     "app.*",
@@ -20,8 +23,10 @@
       "height": 800,
       "minWidth": 900,
       "minHeight": 600,
+      "center": true,
       "icon": "/src/public/favicon.ico",
-      "enableInspector": false
+      "enableInspector": false,
+      "openInspectorOnStartup": false
     }
   },
   "cli": {
