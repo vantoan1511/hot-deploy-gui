@@ -1,9 +1,9 @@
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import type { CollisionDecision, ControlConnection } from '@/types/deployment'
+import { decryptPassword, encryptPassword } from '@/utils/crypto'
 import { storage } from '@neutralinojs/lib'
+import { defineStore } from 'pinia'
 import { v4 as uuidv4 } from 'uuid'
-import type { ControlConnection, CollisionDecision } from '@/types/deployment'
-import { encryptPassword, decryptPassword } from '@/utils/crypto'
+import { computed, ref } from 'vue'
 
 const STORAGE_KEY = 'controls'
 const SECRET_KEY = '_app_secret'
@@ -23,12 +23,12 @@ export const useControlsStore = defineStore('controls', () => {
     )
   )
 
-  function getById(id: string): ControlConnection | undefined {
+  const getById = (id: string): ControlConnection | undefined => {
     return controls.value.find(c => c.id === id)
   }
 
   // ── Persistence ──────────────────────────────────────────────
-  async function load(force = false): Promise<void> {
+  const load = async (force = false): Promise<void> => {
     if (isLoading.value) return
     if (isLoaded.value && !force) return
     isLoading.value = true
@@ -58,14 +58,14 @@ export const useControlsStore = defineStore('controls', () => {
     }
   }
 
-  async function persist(): Promise<void> {
+  const persist = async (): Promise<void> => {
     await storage.setData(STORAGE_KEY, JSON.stringify(controls.value))
   }
 
   // ── CRUD ─────────────────────────────────────────────────────
-  async function create(data: Omit<ControlConnection, 'id' | 'createdAt' | 'updatedAt'>): Promise<ControlConnection> {
+  const create = async (data: Omit<ControlConnection, 'id' | 'createdAt' | 'updatedAt'>): Promise<ControlConnection> => {
     const now = new Date().toISOString()
-    
+
     // Encrypt password if present
     const processedData = { ...data }
     if (processedData.authMethod === 'password' && processedData.password && machineSecret.value) {
@@ -83,12 +83,12 @@ export const useControlsStore = defineStore('controls', () => {
     return control
   }
 
-  async function update(id: string, data: Partial<Omit<ControlConnection, 'id' | 'createdAt'>>): Promise<void> {
+  const update = async (id: string, data: Partial<Omit<ControlConnection, 'id' | 'createdAt'>>): Promise<void> => {
     const index = controls.value.findIndex(c => c.id === id)
     if (index === -1) throw new Error(`Control connection ${id} not found`)
-    
+
     const existing = controls.value[index] as ControlConnection
-    
+
     // Encrypt password if present and changed
     const processedData = { ...data }
     if (processedData.authMethod === 'password' && processedData.password && machineSecret.value) {
@@ -107,15 +107,15 @@ export const useControlsStore = defineStore('controls', () => {
     await persist()
   }
 
-  async function remove(id: string): Promise<void> {
+  const remove = async (id: string): Promise<void> => {
     controls.value = controls.value.filter(c => c.id !== id)
     await persist()
   }
 
-  async function clone(id: string): Promise<ControlConnection> {
+  const clone = async (id: string): Promise<ControlConnection> => {
     const source = getById(id)
     if (!source) throw new Error(`Control connection ${id} not found`)
-    
+
     const { id: _, createdAt: __, updatedAt: ___, password: ____, ...rest } = source
     return create({
       ...rest,
@@ -126,35 +126,35 @@ export const useControlsStore = defineStore('controls', () => {
   /**
    * Returns a connection with its password decrypted.
    */
-  async function getPlaintextControl(id: string): Promise<ControlConnection | undefined> {
+  const getPlaintextControl = async (id: string): Promise<ControlConnection | undefined> => {
     const c = getById(id)
     if (!c) return undefined
-    
+
     if (c.authMethod === 'password' && c.password && machineSecret.value) {
       const plaintext = await decryptPassword(c.password, machineSecret.value)
       return { ...c, password: plaintext || undefined }
     }
-    
+
     return { ...c }
   }
 
-  async function updateServiceOverride(id: string, serviceId: string, override: Partial<import('@/types/deployment').ControlServiceOverride>): Promise<void> {
+  const updateServiceOverride = async (id: string, serviceId: string, override: Partial<import('@/types/deployment').ControlServiceOverride>): Promise<void> => {
     const connection = getById(id)
     if (!connection) throw new Error(`Control connection ${id} not found`)
-    
+
     const overrides = { ...connection.serviceOverrides }
     overrides[serviceId] = {
       ...(overrides[serviceId] || {}),
       ...override,
     }
-    
+
     await update(id, { serviceOverrides: overrides })
   }
 
-  async function importMerge(
+  const importMerge = async (
     incoming: ControlConnection[],
     decisions: CollisionDecision[],
-  ): Promise<{ added: number; replaced: number; skipped: number }> {
+  ): Promise<{ added: number; replaced: number; skipped: number }> => {
     const decisionMap = new Map(decisions.map(d => [d.id, d.action]))
     let added = 0, replaced = 0, skipped = 0
 

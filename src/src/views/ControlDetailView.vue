@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useControlsStore } from '@/stores/controls'
-import { useControlSessionStore } from '@/stores/controlSession'
 import { useControlRunner } from '@/composables/useControlRunner'
 import { useOpenDialog } from '@/composables/useFileDialog'
-import { resolveRemotePath } from '@/utils/pathUtils'
+import { useControlsStore } from '@/stores/controls'
+import { useControlSessionStore } from '@/stores/controlSession'
 import type { ControlConnection, DetectedService } from '@/types/deployment'
+import { resolveRemotePath } from '@/utils/pathUtils'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
-import BaseButton from '@/components/ui/BaseButton.vue'
-import ServiceControlItem from '@/components/controls/ServiceControlItem.vue'
 import LogViewer from '@/components/controls/LogViewer.vue'
+import ServiceControlItem from '@/components/controls/ServiceControlItem.vue'
+import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseConfirmDialog from '@/components/ui/BaseConfirmDialog.vue'
 
 const route = useRoute()
@@ -28,7 +28,6 @@ const activeLog = ref<{ path: string; title: string } | null>(null)
 const confirmDisable = ref<DetectedService | null>(null)
 const isActionRunning = ref(false)
 const showDeployPanel = ref(false)
-const logContainer = ref<HTMLElement | null>(null)
 
 const session = computed(() => sessionStore.getOrCreateSession(id))
 
@@ -42,36 +41,36 @@ onMounted(async () => {
   if (controlsStore.controls.length === 0) {
     await controlsStore.load()
   }
-  
+
   const plain = await controlsStore.getPlaintextControl(id)
   if (!plain) {
     router.replace('/controls')
     return
   }
   control.value = plain
-  
+
   // Initial scan
   handleScan()
 })
 
-async function handleScan() {
+const handleScan = async () => {
   if (!control.value) return
   await runner.scanServices(control.value)
 }
 
-function openGeneralLog() {
+const openGeneralLog = () => {
   if (!control.value) return
   const path = resolveRemotePath(control.value.rootDeploymentPath, `${control.value.logsPath}/${control.value.applicationName}.log`)
   activeLog.value = { path, title: `${control.value.applicationName} — General Log` }
 }
 
-function openServiceLog(service: DetectedService) {
+const openServiceLog = (service: DetectedService) => {
   if (!control.value) return
   const path = resolveRemotePath(control.value.rootDeploymentPath, `${control.value.logsPath}/${service.name}.log`)
   activeLog.value = { path, title: `${service.name} — Log` }
 }
 
-async function handleStop(service: DetectedService) {
+const handleStop = async (service: DetectedService) => {
   if (!control.value) return
   isActionRunning.value = true
   try {
@@ -83,7 +82,7 @@ async function handleStop(service: DetectedService) {
   }
 }
 
-async function handleRestart(service: DetectedService) {
+const handleRestart = async (service: DetectedService) => {
   if (!control.value) return
   isActionRunning.value = true
   try {
@@ -95,11 +94,11 @@ async function handleRestart(service: DetectedService) {
   }
 }
 
-function requestDisable(service: DetectedService) {
+const requestDisable = (service: DetectedService) => {
   confirmDisable.value = service
 }
 
-async function handleDisableConfirm() {
+const handleDisableConfirm = async () => {
   if (!control.value || !confirmDisable.value) return
   const svc = confirmDisable.value
   confirmDisable.value = null
@@ -113,9 +112,9 @@ async function handleDisableConfirm() {
   }
 }
 
-async function handleHotDeploy(service: DetectedService) {
+const handleHotDeploy = async (service: DetectedService) => {
   if (!control.value) return
-  
+
   // 1. Get/Pick local JAR
   let localPath = control.value.serviceOverrides[service.id]?.localJarPath
   if (!localPath) {
@@ -134,11 +133,11 @@ async function handleHotDeploy(service: DetectedService) {
   alert(`Service-specific hot-deploy for ${service.name} using ${localPath} is coming soon. Use the main 'Deploy Package' button for full lifecycle deployment.`)
 }
 
-async function startDeploy() {
+const startDeploy = async () => {
   if (!control.value) return
   showDeployPanel.value = true
   runner.resetDeployStatus()
-  
+
   try {
     await runner.deployPackage(id)
     // After success, rescan to see changes
@@ -150,7 +149,7 @@ async function startDeploy() {
   }
 }
 
-function closeDeployPanel() {
+const closeDeployPanel = () => {
   showDeployPanel.value = false
   runner.resetDeployStatus()
 }
@@ -163,7 +162,7 @@ function closeDeployPanel() {
       <div class="header-nav">
         <button class="back-btn" @click="router.push('/controls')">← Back to Controls</button>
       </div>
-      
+
       <div class="header-main">
         <div class="title-section">
           <h1 class="control-name">{{ control.name }}</h1>
@@ -173,12 +172,9 @@ function closeDeployPanel() {
         <div class="header-actions">
           <BaseButton variant="secondary" @click="openGeneralLog">📖 App Log</BaseButton>
           <BaseButton variant="secondary" :loading="session.isScanning" @click="handleScan">🔄 Rescan</BaseButton>
-          <BaseButton 
-            v-if="control.localPackagePath" 
-            variant="primary" 
+          <BaseButton v-if="control.localPackagePath" variant="primary"
             :loading="runner.deployStatus.value.phase !== 'idle' && runner.deployStatus.value.phase !== 'success' && runner.deployStatus.value.phase !== 'error'"
-            @click="startDeploy"
-          >
+            @click="startDeploy">
             🚀 Deploy Package
           </BaseButton>
           <BaseButton variant="secondary" @click="router.push(`/controls/${id}/edit`)">✏️ Edit</BaseButton>
@@ -194,7 +190,8 @@ function closeDeployPanel() {
       </div>
       <div class="info-tile">
         <label>Ports (HTTP/S)</label>
-        <div class="tile-value">{{ control.applicationHttpPort || '—' }} / {{ control.applicationHttpsPort || '—' }}</div>
+        <div class="tile-value">{{ control.applicationHttpPort || '—' }} / {{ control.applicationHttpsPort || '—' }}
+        </div>
       </div>
       <div class="info-tile">
         <label>Root Path</label>
@@ -202,7 +199,8 @@ function closeDeployPanel() {
       </div>
       <div class="info-tile">
         <label>Last Scan</label>
-        <div class="tile-value">{{ session.lastScanAt ? new Date(session.lastScanAt).toLocaleTimeString() : 'Never' }}</div>
+        <div class="tile-value">{{ session.lastScanAt ? new Date(session.lastScanAt).toLocaleTimeString() : 'Never' }}
+        </div>
       </div>
     </div>
 
@@ -216,7 +214,8 @@ function closeDeployPanel() {
               {{ runner.deployStatus.value.phase.toUpperCase() }}
             </div>
           </div>
-          <BaseButton v-if="['success', 'error'].includes(runner.deployStatus.value.phase)" size="sm" variant="ghost" @click="closeDeployPanel">Close</BaseButton>
+          <BaseButton v-if="['success', 'error'].includes(runner.deployStatus.value.phase)" size="sm" variant="ghost"
+            @click="closeDeployPanel">Close</BaseButton>
         </div>
 
         <div class="panel-content">
@@ -254,16 +253,10 @@ function closeDeployPanel() {
           </div>
 
           <div class="mode-toggle">
-            <button 
-              :class="{ active: viewMode === 'grid' }" 
-              @click="viewMode = 'grid'"
-            >
+            <button :class="{ active: viewMode === 'grid' }" @click="viewMode = 'grid'">
               Grid
             </button>
-            <button 
-              :class="{ active: viewMode === 'list' }" 
-              @click="viewMode = 'list'"
-            >
+            <button :class="{ active: viewMode === 'list' }" @click="viewMode = 'list'">
               List
             </button>
           </div>
@@ -281,48 +274,26 @@ function closeDeployPanel() {
         <BaseButton variant="secondary" size="sm" @click="handleScan">Scan Again</BaseButton>
       </div>
 
-      <div 
-        v-else 
-        class="services-container" 
-        :class="viewMode"
-      >
-        <ServiceControlItem
-          v-for="svc in filteredServices"
-          :key="svc.id"
-          :service="svc"
-          :connection="control"
-          :is-action-loading="isActionRunning"
-          @stop="handleStop"
-          @restart="handleRestart"
-          @disable="requestDisable"
-          @hot-deploy="handleHotDeploy"
-          @view-log="openServiceLog"
-        />
+      <div v-else class="services-container" :class="viewMode">
+        <ServiceControlItem v-for="svc in filteredServices" :key="svc.id" :service="svc" :connection="control"
+          :is-action-loading="isActionRunning" @stop="handleStop" @restart="handleRestart" @disable="requestDisable"
+          @hot-deploy="handleHotDeploy" @view-log="openServiceLog" />
       </div>
     </section>
 
     <!-- Overlay: Log Viewer -->
     <div v-if="activeLog" class="log-overlay">
       <div class="log-modal">
-        <LogViewer
-          :connection="control"
-          :log-path="activeLog.path"
-          :title="activeLog.title"
-          @close="activeLog = null"
-        />
+        <LogViewer :connection="control" :log-path="activeLog.path" :title="activeLog.title"
+          @close="activeLog = null" />
       </div>
     </div>
 
     <!-- Confirm Dialog: Disable -->
-    <BaseConfirmDialog
-      v-if="confirmDisable"
-      title="Disable Service"
+    <BaseConfirmDialog v-if="confirmDisable" title="Disable Service"
       :message="`Are you sure you want to disable '${confirmDisable.name}'? This will rename its directory and stop the process.`"
-      confirm-label="Disable Service"
-      variant="danger"
-      @confirm="handleDisableConfirm"
-      @cancel="confirmDisable = null"
-    />
+      confirm-label="Disable Service" variant="danger" @confirm="handleDisableConfirm"
+      @cancel="confirmDisable = null" />
   </div>
 </template>
 
@@ -509,7 +480,8 @@ function closeDeployPanel() {
   gap: 12px;
 }
 
-.scan-loading, .empty-services {
+.scan-loading,
+.empty-services {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -529,7 +501,9 @@ function closeDeployPanel() {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .empty-icon {
@@ -598,7 +572,11 @@ function closeDeployPanel() {
   color: var(--color-text-secondary);
 }
 
-.status-pill.transferring, .status-pill.cleaning, .status-pill.finalizing, .status-pill.pre-commands, .status-pill.post-commands {
+.status-pill.transferring,
+.status-pill.cleaning,
+.status-pill.finalizing,
+.status-pill.pre-commands,
+.status-pill.post-commands {
   background-color: color-mix(in srgb, var(--color-info) 15%, transparent);
   color: var(--color-info);
 }
@@ -658,8 +636,13 @@ function closeDeployPanel() {
 }
 
 @keyframes progress-slide {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .terminal-box {
@@ -689,11 +672,13 @@ function closeDeployPanel() {
 
 /* ── Animations ─────────────────────────────────────────── */
 
-.slide-enter-active, .slide-leave-active {
+.slide-enter-active,
+.slide-leave-active {
   transition: all 0.3s ease;
 }
 
-.slide-enter-from, .slide-leave-to {
+.slide-enter-from,
+.slide-leave-to {
   opacity: 0;
   transform: translateY(-20px);
 }

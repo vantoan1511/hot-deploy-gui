@@ -1,11 +1,11 @@
-import { ref } from 'vue'
-import { execSSH, execSCP } from './useSSH'
-import { resolveRemotePath, isUrl } from '@/utils/pathUtils'
 import { useControlSessionStore } from '@/stores/controlSession'
 import { useControlsStore } from '@/stores/controls'
 import type { ControlConnection, DetectedService } from '@/types/deployment'
+import { isUrl, resolveRemotePath } from '@/utils/pathUtils'
+import { ref } from 'vue'
+import { execSCP, execSSH } from './useSSH'
 
-export function useControlRunner() {
+export const useControlRunner = () => {
   const sessionStore = useControlSessionStore()
   const controlsStore = useControlsStore()
   const isRefreshing = ref(false)
@@ -31,8 +31,7 @@ export function useControlRunner() {
   /**
    * Discover services on the remote server.
    */
-  async function scanServices(connection: ControlConnection) {
-    const session = sessionStore.getOrCreateSession(connection.id)
+  const scanServices = async (connection: ControlConnection) => {
     sessionStore.setScanning(connection.id, true)
 
     try {
