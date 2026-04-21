@@ -92,7 +92,7 @@ export const useControlRunner = () => {
   async function bulkEnrichServices(connection: ControlConnection, services: DetectedService[]): Promise<void> {
     if (services.length === 0) return
     const pathList = services.map(s => `"${s.path}"`).join(' ')
-    const script = `for p in ${pathList}; do pids=$(pgrep -f "$p" 2>/dev/null | tr '\\n' ' '); first=$(echo "$pids" | awk '{print $1}'); cmd=$([ -n "$first" ] && ps -p "$first" -o args= 2>/dev/null | head -1 || echo ""); printf 'SVC\\t%s\\t%s\\t%s\\n' "$p" "\${pids% }" "$cmd"; done`
+    const script = `for p in ${pathList}; do pids=$(pgrep -f "$p" 2>/dev/null | tr '\\n' ' '); first=$(echo "$pids" | awk '{print $1}'); cmd=$([ -n "$first" ] && tr '\\0' ' ' < /proc/$first/cmdline 2>/dev/null | tr -d '\\n\\r' || echo ""); printf 'SVC\\t%s\\t%s\\t%s\\n' "$p" "\${pids% }" "$cmd"; done`
     const res = await execSSH(connection, script)
     const byPath = new Map(services.map(s => [s.path, s]))
     for (const line of res.output.split('\n')) {
@@ -100,27 +100,32 @@ export const useControlRunner = () => {
       const parts = line.split('\t')
       const path = parts[1]
       const rawPids = parts[2] ?? ''
-      const cmd = parts[3]
+      const cmd = parts.slice(3).join('\t')  // rejoin in case cmd contains tabs
       if (!path) continue
       const svc = byPath.get(path)
       if (!svc) continue
       const pids = rawPids.trim() ? rawPids.trim().split(/\s+/).map(Number).filter(n => !isNaN(n)) : []
       const status: DetectedService['status'] = svc.path.endsWith('_disabled') ? 'disabled' : pids.length > 0 ? 'running' : 'stopped'
-      sessionStore.updateService(connection.id, svc.id, { status, pids, detectedStartCommand: cmd?.trim() || undefined, lastChecked: Date.now() })
+      const update: Partial<DetectedService> = { status, pids, lastChecked: Date.now() }
+      const trimmedCmd = cmd?.trim()
+      if (trimmedCmd) update.detectedStartCommand = trimmedCmd
+      sessionStore.updateService(connection.id, svc.id, update)
     }
   }
 
   async function enrichServiceStatus(connection: ControlConnection, service: DetectedService): Promise<Partial<DetectedService>> {
-    const res = await execSSH(connection, `pids=$(pgrep -f "${service.path}"); if [ -n "$pids" ]; then echo "PIDS:$pids"; first=$(echo "$pids" | head -n 1); ps -p "$first" -o args= | head -n 1; fi`)
+    const res = await execSSH(connection, `pids=$(pgrep -f "${service.path}"); if [ -n "$pids" ]; then echo "PIDS:$pids"; first=$(echo "$pids" | head -n 1); echo "CMD:$(tr '\\0' ' ' < /proc/$first/cmdline 2>/dev/null | tr -d '\\n\\r')"; fi`)
     const lines = res.output.split('\n').map((l: string) => l.trim()).filter(Boolean)
     const pidsLine = lines.find((l: string) => l.startsWith('PIDS:'))
     const pids = pidsLine
       ? pidsLine.replace('PIDS:', '').split(/\s+/).map((p: string) => parseInt(p)).filter((p: number) => !isNaN(p))
       : []
-    const startCmd = lines.find((l: string) => !l.startsWith('PIDS:'))
+    const startCmd = lines.find((l: string) => l.startsWith('CMD:'))?.replace('CMD:', '').trim()
     let status: DetectedService['status'] = pids.length > 0 ? 'running' : 'stopped'
     if (service.path.endsWith('_disabled')) status = 'disabled'
-    return { status, pids, detectedStartCommand: startCmd, lastChecked: Date.now() }
+    const update: Partial<DetectedService> = { status, pids, lastChecked: Date.now() }
+    if (startCmd) update.detectedStartCommand = startCmd
+    return update
   }
 
   async function createDetectedService(
@@ -152,8 +157,9 @@ export const useControlRunner = () => {
   async function restartService(connection: ControlConnection, service: DetectedService) {
     // 1. Resolve start command (override > detected)
     const override = connection.serviceOverrides[service.id]
-    const cmd = override?.startCommand || service.detectedStartCommand
-    
+    const fallbackCmd = service.type === 'directory' ? `java -jar ${service.name}.jar` : undefined
+    const cmd = override?.startCommand || service.detectedStartCommand || fallbackCmd
+
     if (!cmd) throw new Error(`No start command found for ${service.name}`)
 
     // 2. Stop if running
@@ -162,11 +168,12 @@ export const useControlRunner = () => {
     }
 
     // 3. Start
-    // Use nohup and backgrounding
     const workDir = service.type === 'directory' ? service.path : connection.rootDeploymentPath
     const logPath = resolveRemotePath(connection.rootDeploymentPath, `${connection.logsPath}/${service.name}.log`)
     const fullCmd = `cd "${workDir}" && nohup ${cmd} > "${logPath}" 2>&1 &`
-    
+
+    console.log(`[restart] ${service.name}`, { cmd, workDir, logPath, fullCmd, cmdSource: override?.startCommand ? 'override' : service.detectedStartCommand ? 'detected' : 'fallback' })
+
     await execSSH(connection, fullCmd)
     
     // Refresh state after 1s
