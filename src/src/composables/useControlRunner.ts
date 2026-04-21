@@ -75,12 +75,8 @@ export const useControlRunner = () => {
       sessionStore.setServices(connection.id, detected)
       sessionStore.setScanning(connection.id, false)
 
-      // Step 4: Enrich each service with PID/status in the background
-      for (const service of detected) {
-        enrichServiceStatus(connection, service).then((update: Partial<DetectedService>) => {
-          sessionStore.updateService(connection.id, service.id, update)
-        }).catch(() => {/* ignore enrichment errors per-service */})
-      }
+      // Step 4: Single SSH call to enrich all services at once
+      bulkEnrichServices(connection, detected).catch(() => {})
     } catch (err) {
       console.error(`Scan aborted for ${connection.name}:`, err)
     } finally {
@@ -91,6 +87,27 @@ export const useControlRunner = () => {
   function makeServiceSkeleton(name: string, type: 'directory' | 'ui', path: string): DetectedService {
     const status: DetectedService['status'] = path.endsWith('_disabled') ? 'disabled' : 'stopped'
     return { id: name, name, type, path, status, pids: [], lastChecked: Date.now() }
+  }
+
+  async function bulkEnrichServices(connection: ControlConnection, services: DetectedService[]): Promise<void> {
+    if (services.length === 0) return
+    const pathList = services.map(s => `"${s.path}"`).join(' ')
+    const script = `for p in ${pathList}; do pids=$(pgrep -f "$p" 2>/dev/null | tr '\\n' ' '); first=$(echo "$pids" | awk '{print $1}'); cmd=$([ -n "$first" ] && ps -p "$first" -o args= 2>/dev/null | head -1 || echo ""); printf 'SVC\\t%s\\t%s\\t%s\\n' "$p" "\${pids% }" "$cmd"; done`
+    const res = await execSSH(connection, script)
+    const byPath = new Map(services.map(s => [s.path, s]))
+    for (const line of res.output.split('\n')) {
+      if (!line.startsWith('SVC\t')) continue
+      const parts = line.split('\t')
+      const path = parts[1]
+      const rawPids = parts[2] ?? ''
+      const cmd = parts[3]
+      if (!path) continue
+      const svc = byPath.get(path)
+      if (!svc) continue
+      const pids = rawPids.trim() ? rawPids.trim().split(/\s+/).map(Number).filter(n => !isNaN(n)) : []
+      const status: DetectedService['status'] = svc.path.endsWith('_disabled') ? 'disabled' : pids.length > 0 ? 'running' : 'stopped'
+      sessionStore.updateService(connection.id, svc.id, { status, pids, detectedStartCommand: cmd?.trim() || undefined, lastChecked: Date.now() })
+    }
   }
 
   async function enrichServiceStatus(connection: ControlConnection, service: DetectedService): Promise<Partial<DetectedService>> {
