@@ -9,6 +9,26 @@ export const useControlRunner = () => {
   const sessionStore = useControlSessionStore()
   const controlsStore = useControlsStore()
   const isRefreshing = ref(false)
+  let pollingTimer: ReturnType<typeof setInterval> | null = null
+
+  function startPolling(connection: ControlConnection) {
+    stopPolling()
+    const intervalMs = (connection.statusPollIntervalSeconds ?? 5) * 1000
+    if (intervalMs <= 0) return
+    pollingTimer = setInterval(async () => {
+      const session = sessionStore.getOrCreateSession(connection.id)
+      if (!session.isScanning && session.services.length > 0) {
+        await bulkEnrichServices(connection, session.services)
+      }
+    }, intervalMs)
+  }
+
+  function stopPolling() {
+    if (pollingTimer !== null) {
+      clearInterval(pollingTimer)
+      pollingTimer = null
+    }
+  }
 
   /**
    * Resolve wildcards and relative paths to a single absolute services path.
@@ -303,6 +323,8 @@ export const useControlRunner = () => {
     isRefreshing,
     deployStatus,
     scanServices,
+    startPolling,
+    stopPolling,
     stopService,
     restartService,
     disableService,

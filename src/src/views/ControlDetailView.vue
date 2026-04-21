@@ -5,7 +5,7 @@ import { useControlsStore } from '@/stores/controls'
 import { useControlSessionStore } from '@/stores/controlSession'
 import type { ControlConnection, DetectedService } from '@/types/deployment'
 import { resolveRemotePath } from '@/utils/pathUtils'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import LogViewer from '@/components/controls/LogViewer.vue'
@@ -49,9 +49,12 @@ onMounted(async () => {
   }
   control.value = plain
 
-  // Initial scan
-  handleScan()
+  // Initial scan then start polling
+  await handleScan()
+  runner.startPolling(control.value)
 })
+
+onUnmounted(() => runner.stopPolling())
 
 const handleScan = async () => {
   if (!control.value) return

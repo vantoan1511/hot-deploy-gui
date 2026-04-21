@@ -37,6 +37,7 @@ const form = ref({
   rootDeploymentPath: '',
   servicesPath: '',
   logsPath: 'logs',
+  statusPollIntervalSeconds: '5',
   tagsString: '',
   // Deployment
   localPackagePath: '',
@@ -63,6 +64,7 @@ const schema = z.object({
   rootDeploymentPath: z.string().min(1, 'Root deployment path is required'),
   servicesPath: z.string().min(1, 'Services path is required'),
   logsPath: z.string().min(1, 'Logs path is required'),
+  statusPollIntervalSeconds: z.number().int().min(0).optional(),
   privateKeyPath: z.string().optional(),
   password: z.string().optional(),
   localPackagePath: z.string().optional(),
@@ -117,6 +119,7 @@ onMounted(() => {
       rootDeploymentPath: d.rootDeploymentPath,
       servicesPath: d.servicesPath,
       logsPath: d.logsPath,
+      statusPollIntervalSeconds: String(d.statusPollIntervalSeconds ?? 5),
       tagsString: d.tags.join(', '),
       localPackagePath: d.localPackagePath || '',
       preCommands: [...(d.preCommands || [])],
@@ -170,11 +173,12 @@ async function handleTestConnection() {
 function handleSubmit() {
   errors.value = {}
 
-  const result = schema.safeParse({ 
-    ...form.value, 
+  const result = schema.safeParse({
+    ...form.value,
     sshPort: Number(form.value.sshPort),
     applicationHttpPort: form.value.applicationHttpPort ? Number(form.value.applicationHttpPort) : undefined,
     applicationHttpsPort: form.value.applicationHttpsPort ? Number(form.value.applicationHttpsPort) : undefined,
+    statusPollIntervalSeconds: form.value.statusPollIntervalSeconds ? Number(form.value.statusPollIntervalSeconds) : undefined,
   })
 
   if (!result.success) {
@@ -399,6 +403,14 @@ function removePostCommand(index: number) {
             required
             :error="errors.logsPath"
             hint="Relative to root deployment path"
+          />
+          <BaseInput
+            v-model="form.statusPollIntervalSeconds"
+            label="Status Poll Interval (seconds)"
+            placeholder="5"
+            type="number"
+            :error="errors.statusPollIntervalSeconds"
+            hint="How often to refresh service status. Set to 0 to disable."
           />
         </div>
       </div>

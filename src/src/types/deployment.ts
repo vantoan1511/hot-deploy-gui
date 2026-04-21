@@ -61,6 +61,8 @@ export interface ControlConnection extends SSHConfig {
   // Overrides for dynamic services
   serviceOverrides: Record<string, ControlServiceOverride> // serviceId (folder name) -> overrides
 
+  statusPollIntervalSeconds?: number  // 0 = disabled, default 5
+
   createdAt: string
   updatedAt: string
   tags: string[]
