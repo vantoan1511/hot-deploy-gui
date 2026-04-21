@@ -36,6 +36,33 @@ export async function useOpenDialog(options: FileDialogOptions = {}): Promise<st
 }
 
 /**
+ * Show an OS-native folder picker dialog with a 60s safety timeout.
+ * Returns the chosen folder path, or null if cancelled or timed out.
+ */
+export async function useOpenFolderDialog(options: { title?: string; defaultPath?: string } = {}): Promise<string | null> {
+  const DIALOG_TIMEOUT = 60000
+  let timer: any
+
+  try {
+    const dialogPromise = os.showFolderDialog(options.title ?? 'Select Folder', {
+      defaultPath: options.defaultPath,
+    })
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Dialog timed out')), DIALOG_TIMEOUT)
+    })
+
+    const result = await Promise.race([dialogPromise, timeoutPromise])
+    return (result as string | null) ?? null
+  } catch (err) {
+    console.warn('Folder dialog failed or timed out:', err)
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
  * Show an OS-native save-file dialog with a 60s safety timeout.
  * Returns the chosen path, or null if cancelled or timed out.
  */

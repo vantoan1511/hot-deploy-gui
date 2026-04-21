@@ -31,9 +31,9 @@ export interface Deployment extends SSHConfig {
   id: string               // UUID v4
   name: string             // Human-readable label
   
-  remoteDeployPath: string // Absolute remote base path (supports wildcards)
-  remoteLogPath: string    // Absolute remote log directory
-  services: Service[]      // One or more services to deploy
+  remoteDeployPath?: string // Absolute remote base path (supports wildcards)
+  remoteLogPath?: string    // Absolute remote log directory
+  services?: Service[]      // One or more services to deploy
 
   createdAt: string        // ISO 8601
   updatedAt: string        // ISO 8601
@@ -49,14 +49,14 @@ export interface ControlConnection extends SSHConfig {
   name: string             // Human-readable label
   
   // Application specifics
-  applicationName: string      // e.g. "my-app"
+  applicationName?: string     // e.g. "my-app"
   applicationHttpPort?: number
   applicationHttpsPort?: number
-  
+
   // Path specifics
-  rootDeploymentPath: string   // Absolute base, e.g. "/opt/my-app"
-  servicesPath: string         // Absolute, relative, or wildcard
-  logsPath: string             // Absolute or relative, default "logs"
+  rootDeploymentPath?: string  // Absolute base, e.g. "/opt/my-app"
+  servicesPath?: string        // Absolute, relative, or wildcard
+  logsPath?: string            // Absolute or relative, default "logs"
   
   // Overrides for dynamic services
   serviceOverrides: Record<string, ControlServiceOverride> // serviceId (folder name) -> overrides

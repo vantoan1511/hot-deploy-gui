@@ -21,7 +21,7 @@ const filtered = computed(() => {
   return store.sortedControls.filter(c =>
     c.name.toLowerCase().includes(q) ||
     c.host.toLowerCase().includes(q) ||
-    c.applicationName.toLowerCase().includes(q)
+    (c.applicationName ?? '').toLowerCase().includes(q)
   )
 })
 

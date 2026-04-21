@@ -34,7 +34,8 @@ export const useControlRunner = () => {
    * Resolve wildcards and relative paths to a single absolute services path.
    */
   async function resolveServicesPath(connection: ControlConnection): Promise<string | null> {
-    const root = connection.rootDeploymentPath
+    if (!connection.servicesPath) return null
+    const root = connection.rootDeploymentPath ?? ''
     const rawPath = connection.servicesPath
     const base = resolveRemotePath(root, rawPath)
 
@@ -188,8 +189,11 @@ export const useControlRunner = () => {
     }
 
     // 3. Start
-    const workDir = service.type === 'directory' ? service.path : connection.rootDeploymentPath
-    const logPath = resolveRemotePath(connection.rootDeploymentPath, `${connection.logsPath}/${service.name}.log`)
+    const rootPath = connection.rootDeploymentPath ?? service.path
+    const workDir = service.type === 'directory' ? service.path : rootPath
+    const logPath = connection.logsPath
+      ? resolveRemotePath(rootPath, `${connection.logsPath}/${service.name}.log`)
+      : `/tmp/${service.name}.log`
     const fullCmd = `cd "${workDir}" && nohup ${cmd} > "${logPath}" 2>&1 &`
 
     console.log(`[restart] ${service.name}`, { cmd, workDir, logPath, fullCmd, cmdSource: override?.startCommand ? 'override' : service.detectedStartCommand ? 'detected' : 'fallback' })
@@ -243,6 +247,7 @@ export const useControlRunner = () => {
     const control = await controlsStore.getPlaintextControl(controlId)
     if (!control) throw new Error('Control not found')
     if (!control.localPackagePath) throw new Error('No local package path configured')
+    if (!control.rootDeploymentPath) throw new Error('Root deployment path is not configured')
 
     const pkgPath = control.localPackagePath
     const filename = pkgPath.split(/[/\\]/).pop() || 'package'
@@ -268,7 +273,7 @@ export const useControlRunner = () => {
       // 2. Remove old
       deployStatus.value.phase = 'cleaning'
       deployStatus.value.currentStep = 'Cleaning old package...'
-      const rmRes = await execSSH(control, `rm -f "${targetPath}"`)
+      await execSSH(control, `rm -f "${targetPath}"`)
       deployStatus.value.logs.push(`[CLEANUP] Removed ${targetPath}`)
 
       // 3. Finalize (Rename)

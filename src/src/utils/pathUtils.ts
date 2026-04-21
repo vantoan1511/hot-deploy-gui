@@ -1,3 +1,4 @@
+import { filesystem } from '@neutralinojs/lib'
 import type { Service } from '@/types/deployment'
 
 /**
@@ -36,4 +37,30 @@ export function resolveRemotePath(root: string, path: string): string {
 
 export function isUrl(path: string): boolean {
   return path.startsWith('http://') || path.startsWith('https://')
+}
+
+/**
+ * Resolves a local path to an actual jar file.
+ * If the path already ends in .jar, it is returned as-is.
+ * Otherwise it is treated as a project root and the main jar is located
+ * under <root>/build/libs/ — excluding javadoc/sources/kubernetes/plain classifiers.
+ */
+export async function resolveLocalJarPath(localPath: string): Promise<string> {
+  if (localPath.toLowerCase().endsWith('.jar')) return localPath
+
+  const cleanRoot = localPath.replace(/[/\\]+$/, '')
+  const sep = cleanRoot.includes('\\') ? '\\' : '/'
+  const libsDir = `${cleanRoot}${sep}build${sep}libs`
+
+  try {
+    const entries = await filesystem.readDirectory(libsDir)
+    const mainJar = entries.find(e => {
+      if (e.type !== 'FILE') return false
+      const name = e.entry
+      return name.endsWith('.jar') && !/(javadoc|sources|kubernetes|plain)\.jar$/.test(name)
+    })
+    return mainJar ? `${libsDir}${sep}${mainJar.entry}` : localPath
+  } catch {
+    return localPath
+  }
 }

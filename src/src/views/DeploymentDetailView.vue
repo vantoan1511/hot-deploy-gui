@@ -142,11 +142,11 @@ async function handleExport() {
             <dl class="field-list">
               <div class="field-item">
                 <dt>Deploy Path</dt>
-                <dd class="path">{{ deployment.remoteDeployPath }}</dd>
+                <dd class="path">{{ deployment.remoteDeployPath || '—' }}</dd>
               </div>
               <div class="field-item">
                 <dt>Log Path</dt>
-                <dd class="path">{{ deployment.remoteLogPath }}</dd>
+                <dd class="path">{{ deployment.remoteLogPath || '—' }}</dd>
               </div>
             </dl>
           </section>

@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { useSessionStore, GLOBAL_STEPS, SERVICE_STEPS } from '@/stores/session'
 import { useDeploymentsStore } from '@/stores/deployments'
 import { execSSH, execSCP } from './useSSH'
-import { remoteJarFilename, remoteServiceLogPath, isUrl } from '@/utils/pathUtils'
+import { remoteServiceLogPath, isUrl, resolveLocalJarPath } from '@/utils/pathUtils'
 import type { Deployment, Service, StepStatus } from '@/types/deployment'
 
 export const GLOBAL_STEP_NAMES = [
@@ -73,8 +73,10 @@ export function useDeployRunner() {
       } else if (stepIndex === 1) {
         // ── Global Step 2: Validate Remote Path ───────────────
         const deployPath = deployment.remoteDeployPath
-
-        if (hasWildcard(deployPath)) {
+        if (!deployPath) {
+          result = { output: 'Remote deploy path is not configured. Edit the deployment to add it.', exitCode: 1 }
+          status = 'error'
+        } else if (hasWildcard(deployPath)) {
           const resolved = await resolveRemoteDir(deployment, deployPath)
           if (!resolved) {
             result = { output: `No directory matching "${deployPath}" found on the remote host.`, exitCode: 1 }
@@ -101,20 +103,28 @@ export function useDeployRunner() {
         const relative = stepIndex - GLOBAL_STEPS
         const serviceIndex = Math.floor(relative / SERVICE_STEPS)
         const localStep = relative % SERVICE_STEPS
-        const service: Service | undefined = deployment.services[serviceIndex]
+        const service: Service | undefined = (deployment.services ?? [])[serviceIndex]
 
         if (!service) {
           result = { output: `No service at index ${serviceIndex}.`, exitCode: 1 }
           status = 'error'
         } else {
           const dep = effectiveDeployment(deployment)
-          const jarName = remoteJarFilename(service)
-          const logPath = remoteServiceLogPath(dep.remoteLogPath, service.name)
+          const resolvedLocalJar = await resolveLocalJarPath(service.localJarPath)
+          const jarName = resolvedLocalJar.split(/[/\\]/).pop() ?? resolvedLocalJar
+          const logPath = dep.remoteLogPath
+            ? remoteServiceLogPath(dep.remoteLogPath, service.name)
+            : `/tmp/${service.name}.log`
           const svcPath = sessionStore.resolvedSvcPaths[service.id] ?? null
 
           switch (localStep) {
             case 0: { // Resolve Service Dir  |  Find Remote JAR (UI service)
               const deployPath = dep.remoteDeployPath
+              if (!deployPath) {
+                result = { output: 'Remote deploy path is not configured. Edit the deployment to add it.', exitCode: 1 }
+                status = 'error'
+                break
+              }
 
               if (service.isUiService) {
                 // Resolve the existing remote JAR by service.name (supports wildcards)
@@ -189,9 +199,9 @@ export function useDeployRunner() {
                 result = { output: 'Remote target not resolved. Run the first step first.', exitCode: 1 }
                 status = 'error'
               } else {
-                if (isUrl(service.localJarPath)) {
+                if (isUrl(resolvedLocalJar)) {
                   // Use wget on the remote server
-                  const wgetCmd = `wget -q --no-check-certificate -O "${dep.remoteDeployPath}/${jarName}" "${service.localJarPath}"`
+                  const wgetCmd = `wget -q --no-check-certificate -O "${dep.remoteDeployPath}/${jarName}" "${resolvedLocalJar}"`
                   result = await execSSH(dep, wgetCmd)
                   if (result.exitCode === 0) {
                     const verify = await execSSH(dep, `ls -lh "${dep.remoteDeployPath}/${jarName}"`)
@@ -201,7 +211,7 @@ export function useDeployRunner() {
                     status = 'error'
                   }
                 } else {
-                  const scpResult = await execSCP(dep, service.localJarPath, `${dep.remoteDeployPath}/`)
+                  const scpResult = await execSCP(dep, resolvedLocalJar, `${dep.remoteDeployPath}/`)
                   if (scpResult.exitCode === 0) {
                     const verify = await execSSH(dep, `ls -lh "${dep.remoteDeployPath}/${jarName}"`)
                     result = { exitCode: 0, output: verify.output.trim() || `Uploaded: ${jarName}` }
@@ -304,9 +314,10 @@ export function useDeployRunner() {
     const deployment = await deploymentsStore.getPlaintextDeployment(deploymentId)
     if (!deployment) throw new Error(`Deployment ${deploymentId} not found`)
 
+    const allServices = deployment.services ?? []
     const services = serviceIds
-      ? deployment.services.filter(s => serviceIds.includes(s.id))
-      : deployment.services
+      ? allServices.filter(s => serviceIds.includes(s.id))
+      : allServices
 
     isDeploying.value = true
     sessionStore.startSession(deploymentId, services)

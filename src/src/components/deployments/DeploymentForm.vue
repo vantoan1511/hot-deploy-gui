@@ -2,7 +2,8 @@
 import { ref, onMounted } from 'vue'
 import { z } from 'zod'
 import { v4 as uuidv4 } from 'uuid'
-import { useOpenDialog } from '@/composables/useFileDialog'
+import { useOpenDialog, useOpenFolderDialog } from '@/composables/useFileDialog'
+import { resolveLocalJarPath } from '@/utils/pathUtils'
 import { execSSH } from '@/composables/useSSH'
 import { useSettingsStore } from '@/stores/settings'
 import BaseInput from '@/components/ui/BaseInput.vue'
@@ -47,12 +48,11 @@ type ServiceDraft = {
   isUiService: boolean
 }
 
-const services = ref<ServiceDraft[]>([
-  { id: uuidv4(), name: '', localJarPath: '', startCommand: '', stopCommand: '', isUiService: false }
-])
+const services = ref<ServiceDraft[]>([])
 
 const errors = ref<Record<string, string>>({})
-const servicesErrors = ref<Array<Record<string, string>>>([{}])
+const servicesErrors = ref<Array<Record<string, string>>>([])
+const resolvedJarHints = ref<Record<number, string | null>>({})
 const testStatus = ref<'idle' | 'loading' | 'success' | 'error'>('idle')
 const testMessage = ref('')
 
@@ -64,8 +64,8 @@ const schema = z.object({
   username: z.string().min(1, 'Username is required'),
   authMethod: z.enum(['key', 'password']),
   sshPort: z.number().int().min(1).max(65535),
-  remoteDeployPath: z.string().min(1, 'Remote deploy path is required'),
-  remoteLogPath: z.string().min(1, 'Remote log path is required'),
+  remoteDeployPath: z.string().optional(),
+  remoteLogPath: z.string().optional(),
   description: z.string().optional(),
   privateKeyPath: z.string().optional(),
   password: z.string().optional(),
@@ -102,12 +102,10 @@ function validateServices(): boolean {
   let valid = true
   servicesErrors.value = services.value.map(s => {
     const errs: Record<string, string> = {}
+    // Skip rows that are completely blank — user left the default empty row
+    if (!s.name.trim() && !s.localJarPath.trim()) return errs
     if (!s.name.trim()) { errs.name = 'Service name is required'; valid = false }
-    if (!s.localJarPath.trim()) { errs.localJarPath = 'JAR path is required'; valid = false }
-    else if (s.isUiService && !/[-_]SNAPSHOT\.[^.]+$/.test(s.localJarPath)) {
-      errs.localJarPath = 'UI service JAR filename must contain -SNAPSHOT (e.g. my-ui-1.0.0-SNAPSHOT.jar)'
-      valid = false
-    }
+    if (!s.localJarPath.trim()) { errs.localJarPath = 'JAR path or project directory is required'; valid = false }
     return errs
   })
   return valid
@@ -126,8 +124,8 @@ onMounted(() => {
       privateKeyPath: d.privateKeyPath || '',
       password: d.password || '',
       sshPort: String(d.sshPort),
-      remoteDeployPath: d.remoteDeployPath,
-      remoteLogPath: d.remoteLogPath,
+      remoteDeployPath: d.remoteDeployPath ?? '',
+      remoteLogPath: d.remoteLogPath ?? '',
       tagsString: d.tags.join(', '),
       description: d.description || '',
     }
@@ -157,7 +155,21 @@ async function pickJar(index: number) {
     title: 'Select JAR File',
     filters: [{ name: 'JAR Files', extensions: ['jar'] }]
   })
-  if (path && services.value[index]) services.value[index]!.localJarPath = path
+  if (path && services.value[index]) {
+    services.value[index]!.localJarPath = path
+    resolvedJarHints.value[index] = null
+  }
+}
+
+async function pickProjectDir(index: number) {
+  const path = await useOpenFolderDialog({ title: 'Select Project Root Directory' })
+  if (!path || !services.value[index]) return
+  services.value[index]!.localJarPath = path
+  resolvedJarHints.value[index] = 'Resolving...'
+  const resolved = await resolveLocalJarPath(path)
+  resolvedJarHints.value[index] = resolved !== path
+    ? (resolved.split(/[/\\]/).pop() ?? resolved)
+    : 'No main jar found in build/libs/'
 }
 
 function addService() {
@@ -166,9 +178,9 @@ function addService() {
 }
 
 function removeService(index: number) {
-  if (services.value.length <= 1) return
   services.value.splice(index, 1)
   servicesErrors.value.splice(index, 1)
+  delete resolvedJarHints.value[index]
 }
 
 async function handleTestConnection() {
@@ -205,7 +217,12 @@ async function handleTestConnection() {
 function handleSubmit() {
   errors.value = {}
 
-  const result = schema.safeParse({ ...form.value, sshPort: Number(form.value.sshPort) })
+  const result = schema.safeParse({
+    ...form.value,
+    sshPort: Number(form.value.sshPort),
+    remoteDeployPath: form.value.remoteDeployPath.trim() || undefined,
+    remoteLogPath: form.value.remoteLogPath.trim() || undefined,
+  })
 
   if (!result.success) {
     result.error.issues.forEach((issue) => {
@@ -222,14 +239,16 @@ function handleSubmit() {
     .map(t => t.trim())
     .filter(t => t.length > 0)
 
-  const mappedServices: Service[] = services.value.map(s => ({
-    id: s.id,
-    name: s.name.trim(),
-    localJarPath: s.localJarPath.trim(),
-    startCommand: s.startCommand.trim(),
-    stopCommand: s.stopCommand.trim() || undefined,
-    isUiService: s.isUiService || undefined,
-  }))
+  const mappedServices: Service[] = services.value
+    .filter(s => s.name.trim() || s.localJarPath.trim())
+    .map(s => ({
+      id: s.id,
+      name: s.name.trim(),
+      localJarPath: s.localJarPath.trim(),
+      startCommand: s.startCommand.trim(),
+      stopCommand: s.stopCommand.trim() || undefined,
+      isUiService: s.isUiService || undefined,
+    }))
 
   emit('submit', {
     ...result.data,
@@ -372,15 +391,15 @@ function handleSubmit() {
             v-model="form.remoteDeployPath"
             label="Remote Deploy Path"
             placeholder="/opt/services"
-            required
             :error="errors.remoteDeployPath"
+            hint="Can be configured later"
           />
           <BaseInput
             v-model="form.remoteLogPath"
             label="Remote Log Path"
             placeholder="/var/log/services"
-            required
             :error="errors.remoteLogPath"
+            hint="Can be configured later"
           />
         </div>
       </div>
@@ -396,6 +415,9 @@ function handleSubmit() {
       </div>
 
       <div class="services-list">
+        <p v-if="services.length === 0" class="services-empty">
+          No services added yet. Services can be configured later.
+        </p>
         <div
           v-for="(svc, index) in services"
           :key="svc.id"
@@ -413,7 +435,6 @@ function handleSubmit() {
                 UI Service
               </button>
               <button
-                v-if="services.length > 1"
                 type="button"
                 class="remove-btn"
                 @click="removeService(index)"
@@ -432,18 +453,21 @@ function handleSubmit() {
               :error="servicesErrors[index]?.name"
               :hint="svc.isUiService ? 'Display label for this UI artifact' : 'Used for process identification and remote folder name'"
             />
-            <div class="field-with-action">
-              <BaseInput
-                v-model="svc.localJarPath"
-                label="Local JAR Path"
-                :placeholder="svc.isUiService ? '/local/builds/my-ui-1.0.0-SNAPSHOT.jar' : '/local/builds/app.jar'"
-                required
-                read-only
-                :error="servicesErrors[index]?.localJarPath"
-                :hint="svc.isUiService ? 'Must contain -SNAPSHOT; will be renamed on upload' : undefined"
-                class="flex-1"
-              />
-              <BaseButton size="sm" class="action-btn" @click="pickJar(index)">Browse</BaseButton>
+            <div class="field-with-action-stack">
+              <div class="field-with-action">
+                <BaseInput
+                  v-model="svc.localJarPath"
+                  label="Local JAR / Project Path"
+                  placeholder="D:\Projects\my-service\ or /path/to/app.jar"
+                  required
+                  read-only
+                  :error="servicesErrors[index]?.localJarPath"
+                  :hint="resolvedJarHints[index] ? `Resolved: ${resolvedJarHints[index]}` : undefined"
+                  class="flex-1"
+                />
+                <BaseButton size="sm" class="action-btn" @click="pickJar(index)">Browse JAR</BaseButton>
+                <BaseButton size="sm" class="action-btn" variant="secondary" @click="pickProjectDir(index)">Browse Project</BaseButton>
+              </div>
             </div>
             <BaseInput
               v-model="svc.startCommand"
@@ -523,6 +547,12 @@ function handleSubmit() {
   flex: 1;
 }
 
+.field-with-action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .field-with-action {
   display: flex;
   align-items: flex-end;
@@ -557,6 +587,14 @@ function handleSubmit() {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.services-empty {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-style: italic;
+  padding: 12px 0;
+  margin: 0;
 }
 
 .service-card {

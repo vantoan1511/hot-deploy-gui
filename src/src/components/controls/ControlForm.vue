@@ -58,12 +58,12 @@ const schema = z.object({
   username: z.string().min(1, 'Username is required'),
   authMethod: z.enum(['key', 'password']),
   sshPort: z.number().int().min(1).max(65535),
-  applicationName: z.string().min(1, 'Application name is required'),
+  applicationName: z.string().optional(),
   applicationHttpPort: z.number().int().optional().or(z.literal(0)),
   applicationHttpsPort: z.number().int().optional().or(z.literal(0)),
-  rootDeploymentPath: z.string().min(1, 'Root deployment path is required'),
-  servicesPath: z.string().min(1, 'Services path is required'),
-  logsPath: z.string().min(1, 'Logs path is required'),
+  rootDeploymentPath: z.string().optional(),
+  servicesPath: z.string().optional(),
+  logsPath: z.string().optional(),
   statusPollIntervalSeconds: z.number().int().min(0).optional(),
   privateKeyPath: z.string().optional(),
   password: z.string().optional(),
@@ -113,12 +113,12 @@ onMounted(() => {
       privateKeyPath: d.privateKeyPath || '',
       password: d.password || '',
       sshPort: String(d.sshPort),
-      applicationName: d.applicationName,
+      applicationName: d.applicationName ?? '',
       applicationHttpPort: d.applicationHttpPort ? String(d.applicationHttpPort) : '',
       applicationHttpsPort: d.applicationHttpsPort ? String(d.applicationHttpsPort) : '',
-      rootDeploymentPath: d.rootDeploymentPath,
-      servicesPath: d.servicesPath,
-      logsPath: d.logsPath,
+      rootDeploymentPath: d.rootDeploymentPath ?? '',
+      servicesPath: d.servicesPath ?? '',
+      logsPath: d.logsPath ?? '',
       statusPollIntervalSeconds: String(d.statusPollIntervalSeconds ?? 5),
       tagsString: d.tags.join(', '),
       localPackagePath: d.localPackagePath || '',
@@ -176,9 +176,13 @@ function handleSubmit() {
   const result = schema.safeParse({
     ...form.value,
     sshPort: Number(form.value.sshPort),
+    applicationName: form.value.applicationName.trim() || undefined,
     applicationHttpPort: form.value.applicationHttpPort ? Number(form.value.applicationHttpPort) : undefined,
     applicationHttpsPort: form.value.applicationHttpsPort ? Number(form.value.applicationHttpsPort) : undefined,
+    rootDeploymentPath: form.value.rootDeploymentPath.trim() || undefined,
     statusPollIntervalSeconds: form.value.statusPollIntervalSeconds ? Number(form.value.statusPollIntervalSeconds) : undefined,
+    servicesPath: form.value.servicesPath.trim() || undefined,
+    logsPath: form.value.logsPath.trim() || undefined,
   })
 
   if (!result.success) {
@@ -353,7 +357,6 @@ function removePostCommand(index: number) {
             v-model="form.applicationName"
             label="Application Name"
             placeholder="e.g. my-app"
-            required
             :error="errors.applicationName"
           />
           <div class="row">
@@ -385,24 +388,21 @@ function removePostCommand(index: number) {
             v-model="form.rootDeploymentPath"
             label="Root Deployment Path"
             placeholder="e.g. /opt/my-app"
-            required
             :error="errors.rootDeploymentPath"
           />
           <BaseInput
             v-model="form.servicesPath"
             label="Services Path"
             placeholder="e.g. ./temp/services*"
-            required
             :error="errors.servicesPath"
-            hint="Supports wildcards (*) and relative paths"
+            hint="Supports wildcards (*) and relative paths. Can be configured later."
           />
           <BaseInput
             v-model="form.logsPath"
             label="Logs Path"
             placeholder="e.g. ./logs"
-            required
             :error="errors.logsPath"
-            hint="Relative to root deployment path"
+            hint="Relative to root deployment path. Can be configured later."
           />
           <BaseInput
             v-model="form.statusPollIntervalSeconds"
