@@ -66,7 +66,8 @@ const openGeneralLog = () => {
 
 const openServiceLog = (service: DetectedService) => {
   if (!control.value) return
-  const path = resolveRemotePath(control.value.rootDeploymentPath, `${control.value.logsPath}/${service.name}.log`)
+  const baseName = service.name.replace(/-\d+\.\d+[\w.\-]*$/, '')
+  const path = resolveRemotePath(control.value.rootDeploymentPath, `${control.value.logsPath}/${baseName}.log`)
   activeLog.value = { path, title: `${service.name} — Log` }
 }
 

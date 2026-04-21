@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import type { ControlSession, DetectedService } from '@/types/deployment'
 
 export const useControlSessionStore = defineStore('controlSession', () => {
@@ -27,14 +27,14 @@ export const useControlSessionStore = defineStore('controlSession', () => {
 
   function setServices(connectionId: string, services: DetectedService[]) {
     const session = getOrCreateSession(connectionId)
-    session.services = services
+    session.services = services.map(s => reactive({ ...s }))
   }
 
   function updateService(connectionId: string, serviceId: string, update: Partial<DetectedService>) {
     const session = getOrCreateSession(connectionId)
-    const index = session.services.findIndex(s => s.id === serviceId)
-    if (index !== -1) {
-      session.services[index] = { ...session.services[index]!, ...update }
+    const svc = session.services.find(s => s.id === serviceId)
+    if (svc) {
+      Object.assign(svc, update)
     }
   }
 
