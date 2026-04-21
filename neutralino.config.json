@@ -2,7 +2,7 @@
   "applicationId": "com.github.vantoan1511.hotdeploygui",
   "applicationName": "Hot Deploy GUI",
   "author": "Toan Nguyen",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "defaultMode": "window",
   "documentRoot": "/src/dist/",
   "url": "/",
