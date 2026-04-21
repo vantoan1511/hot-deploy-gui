@@ -233,7 +233,7 @@ export async function execSCP(deployment: SSHConfig, localPath: string, remoteDe
   const keyFlag = deployment.privateKeyPath ? `-i "${deployment.privateKeyPath}"` : ''
   const flags = `-P ${deployment.sshPort} -o StrictHostKeyChecking=no ${keyFlag}`.trim()
   const res = await withTimeout(
-    os.execCommand(`scp ${flags} "${localPath}" ${deployment.username}@${deployment.host} "${remoteDest}"`),
+    os.execCommand(`scp ${flags} "${localPath}" ${deployment.username}@${deployment.host}:"${remoteDest}"`),
     DEFAULT_TIMEOUT_MS,
     'SCP Command'
   )
