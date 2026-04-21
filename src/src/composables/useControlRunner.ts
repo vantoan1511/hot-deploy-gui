@@ -56,29 +56,31 @@ export const useControlRunner = () => {
 
       const entries = listRes.output.split('\n').map(l => l.trim()).filter(Boolean)
 
-      // Step 3: Parallel Scan (only if Step 2 succeeded)
-      const scanPromises = entries.map(async (entry) => {
-        const isDir = entry.endsWith('/')
-        const name = entry.replace(/[\/]$/, '')
+      const dirs = new Set(entries.filter(e => e.endsWith('/')).map(e => e.replace(/\/$/, '')))
+      const jars = entries.filter(e => e.endsWith('.jar')).map(e => e.replace(/\.jar$/, ''))
+
+      // Step 3: Build skeletons immediately — no SSH calls needed
+      // If both dir and jar exist → java service; if only jar and name contains 'ui' → UI service
+      const detected: DetectedService[] = []
+      for (const name of jars) {
         const fullPath = `${resolvedPath}/${name}`
-
-        if (isDir) {
-          // Check for .jar inside the directory (marker)
-          const jarCheck = await execSSH(connection, `ls "${fullPath}"/*.jar 2>/dev/null | head -1`)
-          if (jarCheck.output.trim()) {
-            return await createDetectedService(connection, name, 'directory', fullPath)
-          }
-        } else if (name.endsWith('.jar')) {
-          // UI service case
-          return await createDetectedService(connection, name.replace('.jar', ''), 'ui', fullPath)
+        if (dirs.has(name)) {
+          detected.push(makeServiceSkeleton(name, 'directory', fullPath))
+        } else if (name.toLowerCase().includes('ui')) {
+          detected.push(makeServiceSkeleton(name, 'ui', `${fullPath}.jar`))
         }
-        return null
-      })
+      }
 
-      const results = await Promise.all(scanPromises)
-      const detected = results.filter((s): s is DetectedService => s !== null)
-
+      // Show services immediately, stop scanning indicator
       sessionStore.setServices(connection.id, detected)
+      sessionStore.setScanning(connection.id, false)
+
+      // Step 4: Enrich each service with PID/status in the background
+      for (const service of detected) {
+        enrichServiceStatus(connection, service).then((update: Partial<DetectedService>) => {
+          sessionStore.updateService(connection.id, service.id, update)
+        }).catch(() => {/* ignore enrichment errors per-service */})
+      }
     } catch (err) {
       console.error(`Scan aborted for ${connection.name}:`, err)
     } finally {
@@ -86,40 +88,33 @@ export const useControlRunner = () => {
     }
   }
 
-  /**
-   * Helper to build a DetectedService object with PID and status.
-   */
+  function makeServiceSkeleton(name: string, type: 'directory' | 'ui', path: string): DetectedService {
+    const status: DetectedService['status'] = path.endsWith('_disabled') ? 'disabled' : 'stopped'
+    return { id: name, name, type, path, status, pids: [], lastChecked: Date.now() }
+  }
+
+  async function enrichServiceStatus(connection: ControlConnection, service: DetectedService): Promise<Partial<DetectedService>> {
+    const res = await execSSH(connection, `pids=$(pgrep -f "${service.path}"); if [ -n "$pids" ]; then echo "PIDS:$pids"; first=$(echo "$pids" | head -n 1); ps -p "$first" -o args= | head -n 1; fi`)
+    const lines = res.output.split('\n').map((l: string) => l.trim()).filter(Boolean)
+    const pidsLine = lines.find((l: string) => l.startsWith('PIDS:'))
+    const pids = pidsLine
+      ? pidsLine.replace('PIDS:', '').split(/\s+/).map((p: string) => parseInt(p)).filter((p: number) => !isNaN(p))
+      : []
+    const startCmd = lines.find((l: string) => !l.startsWith('PIDS:'))
+    let status: DetectedService['status'] = pids.length > 0 ? 'running' : 'stopped'
+    if (service.path.endsWith('_disabled')) status = 'disabled'
+    return { status, pids, detectedStartCommand: startCmd, lastChecked: Date.now() }
+  }
+
   async function createDetectedService(
     connection: ControlConnection,
     name: string,
     type: 'directory' | 'ui',
     path: string
   ): Promise<DetectedService> {
-    // Single SSH call to get both PIDs and the start command of the first PID
-    const res = await execSSH(connection, `pids=$(pgrep -f "${path}"); if [ -n "$pids" ]; then echo "PIDS:$pids"; first=$(echo "$pids" | head -n 1); ps -p "$first" -o args= | head -n 1; fi`)
-    
-    const lines = res.output.split('\n').map(l => l.trim()).filter(Boolean)
-    const pidsLine = lines.find(l => l.startsWith('PIDS:'))
-    const pids = pidsLine 
-      ? pidsLine.replace('PIDS:', '').split(/\s+/).map(p => parseInt(p)).filter(p => !isNaN(p))
-      : []
-    
-    // The line after PIDS: (or the only other line) is the command args
-    const startCmd = lines.find(l => !l.startsWith('PIDS:'))
-
-    let status: DetectedService['status'] = pids.length > 0 ? 'running' : 'stopped'
-    if (path.endsWith('_disabled')) status = 'disabled'
-
-    return {
-      id: name,
-      name,
-      type,
-      path,
-      status,
-      pids,
-      detectedStartCommand: startCmd,
-      lastChecked: Date.now(),
-    }
+    const skeleton = makeServiceSkeleton(name, type, path)
+    const update = await enrichServiceStatus(connection, skeleton)
+    return { ...skeleton, ...update }
   }
 
   async function stopService(connection: ControlConnection, service: DetectedService) {
