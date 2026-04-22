@@ -18,6 +18,14 @@ export function remoteServiceLogPath(remoteLogPath: string, serviceName: string)
 }
 
 /**
+ * Strips a Maven/Gradle version suffix from a service directory name.
+ * e.g. 'cu-dossier-processing-service-1.3.65-SNAPSHOT' → 'cu-dossier-processing-service'
+ */
+export function serviceBaseName(name: string): string {
+  return name.replace(/-\d+\.\d+[\w.\-]*$/, '')
+}
+
+/**
  * Resolves a remote path.
  * If 'path' is relative (doesn't start with /), it's resolved against 'root'.
  * Removes trailing slashes for consistency.

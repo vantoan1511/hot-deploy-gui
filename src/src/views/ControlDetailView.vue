@@ -4,7 +4,7 @@ import { useOpenDialog } from '@/composables/useFileDialog'
 import { useControlsStore } from '@/stores/controls'
 import { useControlSessionStore } from '@/stores/controlSession'
 import type { ControlConnection, DetectedService } from '@/types/deployment'
-import { resolveRemotePath } from '@/utils/pathUtils'
+import { resolveRemotePath, serviceBaseName } from '@/utils/pathUtils'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -69,7 +69,7 @@ const openGeneralLog = () => {
 
 const openServiceLog = (service: DetectedService) => {
   if (!control.value) return
-  const baseName = service.name.replace(/-\d+\.\d+[\w.\-]*$/, '')
+  const baseName = serviceBaseName(service.name)
   const path = resolveRemotePath(control.value.rootDeploymentPath, `${control.value.logsPath}/${baseName}.log`)
   activeLog.value = { path, title: `${service.name} — Log` }
 }

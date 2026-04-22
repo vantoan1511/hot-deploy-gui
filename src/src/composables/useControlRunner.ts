@@ -1,7 +1,7 @@
 import { useControlSessionStore } from '@/stores/controlSession'
 import { useControlsStore } from '@/stores/controls'
 import type { ControlConnection, DetectedService } from '@/types/deployment'
-import { isUrl, resolveRemotePath } from '@/utils/pathUtils'
+import { isUrl, resolveRemotePath, serviceBaseName } from '@/utils/pathUtils'
 import { ref } from 'vue'
 import { execSCP, execSSH } from './useSSH'
 
@@ -110,10 +110,23 @@ export const useControlRunner = () => {
     return { id: name, name, type, path, status, pids: [], lastChecked: Date.now() }
   }
 
+  // Wrap -D... args in single quotes so $, + etc. are not expanded by the shell at restart time.
+  // cmd uses \x01 (SOH) as arg separator, matching tr '\0' '\001' on the remote side.
+  function quoteCommandParams(cmd: string): string {
+    return cmd
+      .split('\x01')
+      .filter(Boolean)
+      .map(arg => {
+        if (!arg.startsWith('-D')) return arg
+        return `'${arg.replace(/'/g, "'\\''")}'`
+      })
+      .join(' ')
+  }
+
   async function bulkEnrichServices(connection: ControlConnection, services: DetectedService[]): Promise<void> {
     if (services.length === 0) return
     const pathList = services.map(s => `"${s.path}"`).join(' ')
-    const script = `for p in ${pathList}; do pids=$(pgrep -f "$p" 2>/dev/null | tr '\\n' ' '); first=$(echo "$pids" | awk '{print $1}'); cmd=$([ -n "$first" ] && tr '\\0' ' ' < /proc/$first/cmdline 2>/dev/null | tr -d '\\n\\r' || echo ""); printf 'SVC\\t%s\\t%s\\t%s\\n' "$p" "\${pids% }" "$cmd"; done`
+    const script = `for p in ${pathList}; do pids=$(pgrep -f "$p" 2>/dev/null | tr '\\n' ' '); first=$(echo "$pids" | awk '{print $1}'); cmd=$([ -n "$first" ] && tr '\\0' '\\001' < /proc/$first/cmdline 2>/dev/null | tr -d '\\n\\r' || echo ""); printf 'SVC\\t%s\\t%s\\t%s\\n' "$p" "\${pids% }" "$cmd"; done`
     const res = await execSSH(connection, script)
     const byPath = new Map(services.map(s => [s.path, s]))
     for (const line of res.output.split('\n')) {
@@ -129,13 +142,13 @@ export const useControlRunner = () => {
       const status: DetectedService['status'] = svc.path.endsWith('_disabled') ? 'disabled' : pids.length > 0 ? 'running' : 'stopped'
       const update: Partial<DetectedService> = { status, pids, lastChecked: Date.now() }
       const trimmedCmd = cmd?.trim()
-      if (trimmedCmd) update.detectedStartCommand = trimmedCmd
+      if (trimmedCmd) update.detectedStartCommand = quoteCommandParams(trimmedCmd)
       sessionStore.updateService(connection.id, svc.id, update)
     }
   }
 
   async function enrichServiceStatus(connection: ControlConnection, service: DetectedService): Promise<Partial<DetectedService>> {
-    const res = await execSSH(connection, `pids=$(pgrep -f "${service.path}"); if [ -n "$pids" ]; then echo "PIDS:$pids"; first=$(echo "$pids" | head -n 1); echo "CMD:$(tr '\\0' ' ' < /proc/$first/cmdline 2>/dev/null | tr -d '\\n\\r')"; fi`)
+    const res = await execSSH(connection, `pids=$(pgrep -f "${service.path}"); if [ -n "$pids" ]; then echo "PIDS:$pids"; first=$(echo "$pids" | head -n 1); echo "CMD:$(tr '\\0' '\\001' < /proc/$first/cmdline 2>/dev/null | tr -d '\\n\\r')"; fi`)
     const lines = res.output.split('\n').map((l: string) => l.trim()).filter(Boolean)
     const pidsLine = lines.find((l: string) => l.startsWith('PIDS:'))
     const pids = pidsLine
@@ -145,7 +158,7 @@ export const useControlRunner = () => {
     let status: DetectedService['status'] = pids.length > 0 ? 'running' : 'stopped'
     if (service.path.endsWith('_disabled')) status = 'disabled'
     const update: Partial<DetectedService> = { status, pids, lastChecked: Date.now() }
-    if (startCmd) update.detectedStartCommand = startCmd
+    if (startCmd) update.detectedStartCommand = quoteCommandParams(startCmd)
     return update
   }
 
@@ -190,10 +203,11 @@ export const useControlRunner = () => {
 
     // 3. Start
     const rootPath = connection.rootDeploymentPath ?? service.path
-    const workDir = service.type === 'directory' ? service.path : rootPath
+    const workDir = rootPath
+    const logName = serviceBaseName(service.name)
     const logPath = connection.logsPath
-      ? resolveRemotePath(rootPath, `${connection.logsPath}/${service.name}.log`)
-      : `/tmp/${service.name}.log`
+      ? resolveRemotePath(rootPath, `${connection.logsPath}/${logName}.log`)
+      : `/tmp/${logName}.log`
     const fullCmd = `cd "${workDir}" && nohup ${cmd} > "${logPath}" 2>&1 &`
 
     console.log(`[restart] ${service.name}`, { cmd, workDir, logPath, fullCmd, cmdSource: override?.startCommand ? 'override' : service.detectedStartCommand ? 'detected' : 'fallback' })
