@@ -129,7 +129,7 @@ onMounted(() => {
       tagsString: d.tags.join(', '),
       description: d.description || '',
     }
-    if (d.services.length > 0) {
+    if (d.services && d.services.length > 0) {
       services.value = d.services.map(s => ({
         id: s.id,
         name: s.name,

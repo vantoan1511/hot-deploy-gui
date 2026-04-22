@@ -25,7 +25,7 @@ const filtered = computed(() => {
     d.name.toLowerCase().includes(q) ||
     d.host.toLowerCase().includes(q) ||
     d.username.toLowerCase().includes(q) ||
-    d.services.some(s => s.name.toLowerCase().includes(q)) ||
+    d.services?.some(s => s.name.toLowerCase().includes(q)) ||
     d.tags.some(t => t.toLowerCase().includes(q))
   )
 })

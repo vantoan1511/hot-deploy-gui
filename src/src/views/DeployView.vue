@@ -24,7 +24,7 @@ onMounted(async () => {
     await deploymentsStore.load()
   }
   if (deployment.value) {
-    sessionStore.startSession(id, deployment.value.services)
+    sessionStore.startSession(id, deployment.value.services ?? [])
   }
 })
 
@@ -32,7 +32,7 @@ const showServiceSelect = ref(false)
 
 function handleDeployAll() {
   if (!id || !deployment.value) return
-  if (deployment.value.services.length > 1) {
+  if ((deployment.value.services?.length ?? 0) > 1) {
     showServiceSelect.value = true
   } else {
     runner.deployAll(id)
@@ -110,7 +110,7 @@ async function handleRunStep(stepIndex: number) {
       <!-- Service Selection Dialog -->
       <ServiceSelectDialog
         v-if="showServiceSelect"
-        :services="deployment.services"
+        :services="deployment.services ?? []"
         @confirm="handleServiceSelectConfirm"
         @cancel="showServiceSelect = false"
       />

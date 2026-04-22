@@ -63,14 +63,14 @@ const handleScan = async () => {
 
 const openGeneralLog = () => {
   if (!control.value) return
-  const path = resolveRemotePath(control.value.rootDeploymentPath, `${control.value.logsPath}/${control.value.applicationName}.log`)
+  const path = resolveRemotePath(control.value.rootDeploymentPath ?? '', `${control.value.logsPath}/${control.value.applicationName}.log`)
   activeLog.value = { path, title: `${control.value.applicationName} — General Log` }
 }
 
 const openServiceLog = (service: DetectedService) => {
   if (!control.value) return
   const baseName = serviceBaseName(service.name)
-  const path = resolveRemotePath(control.value.rootDeploymentPath, `${control.value.logsPath}/${baseName}.log`)
+  const path = resolveRemotePath(control.value.rootDeploymentPath ?? '', `${control.value.logsPath}/${baseName}.log`)
   activeLog.value = { path, title: `${service.name} — Log` }
 }
 

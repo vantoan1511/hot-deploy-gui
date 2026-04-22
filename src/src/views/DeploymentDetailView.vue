@@ -112,7 +112,7 @@ async function handleExport() {
           </section>
 
           <section class="info-section services-section">
-            <h3 class="section-title">Services ({{ deployment.services.length }})</h3>
+            <h3 class="section-title">Services ({{ deployment.services?.length ?? 0 }})</h3>
             <div class="services-list">
               <div v-for="svc in deployment.services" :key="svc.id" class="service-entry">
                 <div class="service-entry-name">
