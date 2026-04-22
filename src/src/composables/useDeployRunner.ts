@@ -212,7 +212,7 @@ export function useDeployRunner() {
                     status = 'error'
                   }
                 } else {
-                  // Get local file size so we can show progress
+                  // Get local file size for progress display
                   let localSizeBytes = 0
                   try {
                     const stats = await filesystem.getStats(resolvedLocalJar)
@@ -223,32 +223,46 @@ export function useDeployRunner() {
                   const sizeStr = localSizeBytes > 0 ? ` (${localSizeMB.toFixed(1)} MB)` : ''
                   sessionStore.appendStepOutput(stepIndex, `Uploading ${jarName}${sizeStr}...\n`)
 
-                  // Poll remote file size every 3 s while SCP is in flight
                   const remoteFilePath = `${dep.remoteDeployPath}/${jarName}`
-                  let pollTimer: ReturnType<typeof setInterval> | null = null
-                  let isPolling = false
-                  if (localSizeBytes > 0) {
-                    pollTimer = setInterval(async () => {
-                      if (isPolling) return
-                      isPolling = true
-                      try {
-                        const statRes = await execSSH(dep, `stat -c %s "${remoteFilePath}" 2>/dev/null || echo 0`)
-                        const received = parseInt(statRes.output.trim()) || 0
-                        if (received > 0) {
-                          const receivedMB = received / 1048576
-                          const pct = Math.min(99, Math.round(received / localSizeBytes * 100))
-                          sessionStore.appendStepOutput(stepIndex, `  ↑ ${receivedMB.toFixed(1)} / ${localSizeMB.toFixed(1)} MB (${pct}%)\n`)
-                        }
-                      } catch { /* ignore poll errors */ }
-                      finally { isPolling = false }
-                    }, 3000)
-                  }
+                  let tickCount = 0
+                  let lastKnownBytes = 0
+                  let statInFlight = false
+                  let uploadDone = false
+
+                  // Tick every 2 s: append elapsed + last-known bytes (SSH stat fires in background)
+                  const pollTimer = setInterval(() => {
+                    tickCount++
+                    const elapsedSec = tickCount * 2
+                    let line: string
+                    if (lastKnownBytes > 0 && localSizeBytes > 0) {
+                      const receivedMB = lastKnownBytes / 1048576
+                      const pct = Math.min(99, Math.round(lastKnownBytes / localSizeBytes * 100))
+                      line = `  ↑ ${receivedMB.toFixed(1)} / ${localSizeMB.toFixed(1)} MB (${pct}%) [${elapsedSec}s]\n`
+                    } else {
+                      line = `  transferring... [${elapsedSec}s]\n`
+                    }
+                    sessionStore.appendStepOutput(stepIndex, line)
+
+                    // Refresh byte count via SSH (fire-and-forget; guard against overlap)
+                    if (!statInFlight) {
+                      statInFlight = true
+                      execSSH(dep, `stat -c %s "${remoteFilePath}" 2>/dev/null || echo 0`)
+                        .then(res => {
+                          if (uploadDone) return
+                          const bytes = parseInt(res.output.trim()) || 0
+                          if (bytes > 0) lastKnownBytes = bytes
+                        })
+                        .catch(() => {})
+                        .finally(() => { statInFlight = false })
+                    }
+                  }, 2000)
 
                   let scpResult: { output: string; exitCode: number }
                   try {
                     scpResult = await execSCP(dep, resolvedLocalJar, `${dep.remoteDeployPath}/`, UPLOAD_TIMEOUT_MS)
                   } finally {
-                    if (pollTimer !== null) clearInterval(pollTimer)
+                    uploadDone = true
+                    clearInterval(pollTimer)
                   }
 
                   if (scpResult.exitCode === 0) {
