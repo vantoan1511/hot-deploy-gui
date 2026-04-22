@@ -11,6 +11,7 @@ export interface ExecResult {
 // ── Execution Helpers ─────────────────────────────────────
 const DEFAULT_TIMEOUT_MS = 10000 // Reduced from 15s to 10s for faster failover
 const TOOL_TIMEOUT_MS = 2000    // Shorter timeout for local tool checks
+export const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 5 min — large JARs can be ~100 MB
 
 async function withTimeout<T>(promise: Promise<T>, ms: number = DEFAULT_TIMEOUT_MS, label: string = 'Command'): Promise<T> {
   let timer: any
@@ -192,7 +193,7 @@ export async function execSSH(deployment: SSHConfig, remoteCmd: string): Promise
 
 // ── SCP execution ─────────────────────────────────────────
 
-async function execSCPWithPassword(deployment: SSHConfig, localPath: string, remoteDest: string): Promise<ExecResult> {
+async function execSCPWithPassword(deployment: SSHConfig, localPath: string, remoteDest: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
   const { password = '', host, username, sshPort } = deployment
 
   // 1. sshpass
@@ -200,7 +201,7 @@ async function execSCPWithPassword(deployment: SSHConfig, localPath: string, rem
     const flags = `-P ${sshPort} -o StrictHostKeyChecking=no`
     const res = await withTimeout(
       os.execCommand(`sshpass -p "${password}" scp ${flags} "${localPath}" ${username}@${host}:"${remoteDest}"`),
-      DEFAULT_TIMEOUT_MS,
+      timeoutMs,
       'SCP (sshpass)'
     )
     return toResult(res)
@@ -210,7 +211,7 @@ async function execSCPWithPassword(deployment: SSHConfig, localPath: string, rem
   if (await checkTool('pscp -V')) {
     const res = await withTimeout(
       os.execCommand(`pscp -P ${sshPort} -pw "${password}" -batch "${localPath}" ${username}@${host}:"${remoteDest}"`),
-      DEFAULT_TIMEOUT_MS,
+      timeoutMs,
       'SCP (pscp)'
     )
     return toResult(res)
@@ -221,20 +222,20 @@ async function execSCPWithPassword(deployment: SSHConfig, localPath: string, rem
     const prefix = askpassEnvPrefix(askpassPath)
     const flags = `-P ${sshPort} -o StrictHostKeyChecking=no -o PasswordAuthentication=yes`
     const cmd = `${prefix} scp ${flags} "${localPath}" ${username}@${host}:"${remoteDest}"`
-    const res = await withTimeout(os.execCommand(cmd), DEFAULT_TIMEOUT_MS, 'SCP (askpass)')
+    const res = await withTimeout(os.execCommand(cmd), timeoutMs, 'SCP (askpass)')
     return toResult(res)
   })
 }
 
-export async function execSCP(deployment: SSHConfig, localPath: string, remoteDest: string): Promise<ExecResult> {
+export async function execSCP(deployment: SSHConfig, localPath: string, remoteDest: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
   if (deployment.authMethod === 'password') {
-    return await execSCPWithPassword(deployment, localPath, remoteDest)
+    return await execSCPWithPassword(deployment, localPath, remoteDest, timeoutMs)
   }
   const keyFlag = deployment.privateKeyPath ? `-i "${deployment.privateKeyPath}"` : ''
   const flags = `-P ${deployment.sshPort} -o StrictHostKeyChecking=no ${keyFlag}`.trim()
   const res = await withTimeout(
     os.execCommand(`scp ${flags} "${localPath}" ${deployment.username}@${deployment.host}:"${remoteDest}"`),
-    DEFAULT_TIMEOUT_MS,
+    timeoutMs,
     'SCP Command'
   )
   return toResult(res)

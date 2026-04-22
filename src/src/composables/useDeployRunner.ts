@@ -1,7 +1,8 @@
+import { filesystem } from '@neutralinojs/lib'
 import { ref } from 'vue'
 import { useSessionStore, GLOBAL_STEPS, SERVICE_STEPS } from '@/stores/session'
 import { useDeploymentsStore } from '@/stores/deployments'
-import { execSSH, execSCP } from './useSSH'
+import { execSSH, execSCP, UPLOAD_TIMEOUT_MS } from './useSSH'
 import { remoteServiceLogPath, isUrl, resolveLocalJarPath } from '@/utils/pathUtils'
 import type { Deployment, Service, StepStatus } from '@/types/deployment'
 
@@ -211,9 +212,47 @@ export function useDeployRunner() {
                     status = 'error'
                   }
                 } else {
-                  const scpResult = await execSCP(dep, resolvedLocalJar, `${dep.remoteDeployPath}/`)
+                  // Get local file size so we can show progress
+                  let localSizeBytes = 0
+                  try {
+                    const stats = await filesystem.getStats(resolvedLocalJar)
+                    localSizeBytes = stats.size
+                  } catch { /* best-effort */ }
+
+                  const localSizeMB = localSizeBytes / 1048576
+                  const sizeStr = localSizeBytes > 0 ? ` (${localSizeMB.toFixed(1)} MB)` : ''
+                  sessionStore.appendStepOutput(stepIndex, `Uploading ${jarName}${sizeStr}...\n`)
+
+                  // Poll remote file size every 3 s while SCP is in flight
+                  const remoteFilePath = `${dep.remoteDeployPath}/${jarName}`
+                  let pollTimer: ReturnType<typeof setInterval> | null = null
+                  let isPolling = false
+                  if (localSizeBytes > 0) {
+                    pollTimer = setInterval(async () => {
+                      if (isPolling) return
+                      isPolling = true
+                      try {
+                        const statRes = await execSSH(dep, `stat -c %s "${remoteFilePath}" 2>/dev/null || echo 0`)
+                        const received = parseInt(statRes.output.trim()) || 0
+                        if (received > 0) {
+                          const receivedMB = received / 1048576
+                          const pct = Math.min(99, Math.round(received / localSizeBytes * 100))
+                          sessionStore.appendStepOutput(stepIndex, `  ↑ ${receivedMB.toFixed(1)} / ${localSizeMB.toFixed(1)} MB (${pct}%)\n`)
+                        }
+                      } catch { /* ignore poll errors */ }
+                      finally { isPolling = false }
+                    }, 3000)
+                  }
+
+                  let scpResult: { output: string; exitCode: number }
+                  try {
+                    scpResult = await execSCP(dep, resolvedLocalJar, `${dep.remoteDeployPath}/`, UPLOAD_TIMEOUT_MS)
+                  } finally {
+                    if (pollTimer !== null) clearInterval(pollTimer)
+                  }
+
                   if (scpResult.exitCode === 0) {
-                    const verify = await execSSH(dep, `ls -lh "${dep.remoteDeployPath}/${jarName}"`)
+                    const verify = await execSSH(dep, `ls -lh "${remoteFilePath}"`)
                     result = { exitCode: 0, output: verify.output.trim() || `Uploaded: ${jarName}` }
                     status = 'success'
                   } else {
