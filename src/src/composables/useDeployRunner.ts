@@ -2,7 +2,7 @@ import { filesystem } from '@neutralinojs/lib'
 import { ref } from 'vue'
 import { useSessionStore, GLOBAL_STEPS, SERVICE_STEPS } from '@/stores/session'
 import { useDeploymentsStore } from '@/stores/deployments'
-import { execSSH, execSCP, UPLOAD_TIMEOUT_MS } from './useSSH'
+import { execSSH, execSCP, UPLOAD_TIMEOUT_MS, execSSHWithTimeout, REMOTE_DOWNLOAD_TIMEOUT_MS } from './useSSH'
 import { remoteServiceLogPath, isUrl, resolveLocalJarPath } from '@/utils/pathUtils'
 import type { Deployment, Service, StepStatus } from '@/types/deployment'
 
@@ -203,9 +203,9 @@ export function useDeployRunner() {
                 if (isUrl(resolvedLocalJar)) {
                   // Use wget on the remote server
                   const wgetCmd = `wget -q --no-check-certificate -O "${dep.remoteDeployPath}/${jarName}" "${resolvedLocalJar}"`
-                  result = await execSSH(dep, wgetCmd)
+                  result = await execSSHWithTimeout(dep, wgetCmd, REMOTE_DOWNLOAD_TIMEOUT_MS)
                   if (result.exitCode === 0) {
-                    const verify = await execSSH(dep, `ls -lh "${dep.remoteDeployPath}/${jarName}"`)
+                    const verify = await execSSHWithTimeout(dep, `ls -lh "${dep.remoteDeployPath}/${jarName}"`, REMOTE_DOWNLOAD_TIMEOUT_MS)
                     result = { exitCode: 0, output: `[WGET] ${verify.output.trim() || 'Downloaded complete'}` }
                     status = 'success'
                   } else {

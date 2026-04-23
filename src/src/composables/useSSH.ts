@@ -12,6 +12,8 @@ export interface ExecResult {
 const DEFAULT_TIMEOUT_MS = 10000 // Reduced from 15s to 10s for faster failover
 const TOOL_TIMEOUT_MS = 2000    // Shorter timeout for local tool checks
 export const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 5 min — large JARs can be ~100 MB
+export const REMOTE_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 5 min — large JARs can be ~100 MB
+
 
 async function withTimeout<T>(promise: Promise<T>, ms: number = DEFAULT_TIMEOUT_MS, label: string = 'Command'): Promise<T> {
   let timer: any
@@ -139,7 +141,7 @@ function toResult(r: { stdOut: string; stdErr: string; exitCode: number }): Exec
 
 // ── SSH execution ─────────────────────────────────────────
 
-async function execSSHWithPassword(deployment: SSHConfig, remoteCmd: string): Promise<ExecResult> {
+async function execSSHWithPasswordTimeout(deployment: SSHConfig, remoteCmd: string, timeoutMs: number): Promise<ExecResult> {
   const { password = '', host, username, sshPort } = deployment
 
   const wrapped = wrapRemoteCmd(remoteCmd)
@@ -149,7 +151,7 @@ async function execSSHWithPassword(deployment: SSHConfig, remoteCmd: string): Pr
     const flags = `-p ${sshPort} -o StrictHostKeyChecking=no -o BatchMode=yes`
     const res = await withTimeout(
       os.execCommand(`sshpass -p "${password}" ssh ${flags} ${username}@${host} "${wrapped}"`),
-      DEFAULT_TIMEOUT_MS,
+      timeoutMs,
       'SSH (sshpass)'
     )
     return toResult(res)
@@ -159,7 +161,7 @@ async function execSSHWithPassword(deployment: SSHConfig, remoteCmd: string): Pr
   if (await checkPlink()) {
     const res = await withTimeout(
       os.execCommand(`plink -P ${sshPort} -pw "${password}" -batch ${username}@${host} "${wrapped}"`),
-      DEFAULT_TIMEOUT_MS,
+      timeoutMs,
       'SSH (plink)'
     )
     return toResult(res)
@@ -172,23 +174,31 @@ async function execSSHWithPassword(deployment: SSHConfig, remoteCmd: string): Pr
     // Omit -o BatchMode=yes here: BatchMode blocks SSH_ASKPASS
     const flags = `-p ${sshPort} -o StrictHostKeyChecking=no -o PasswordAuthentication=yes`
     const cmd = `${prefix} ssh ${flags} ${username}@${host} "${wrapped}"`
-    const res = await withTimeout(os.execCommand(cmd), DEFAULT_TIMEOUT_MS, 'SSH (askpass)')
+    const res = await withTimeout(os.execCommand(cmd), timeoutMs, 'SSH (askpass)')
     return toResult(res)
   })
 }
 
-export async function execSSH(deployment: SSHConfig, remoteCmd: string): Promise<ExecResult> {
+async function execSSHWithPassword(deployment: SSHConfig, remoteCmd: string): Promise<ExecResult> {
+  return await execSSHWithPasswordTimeout(deployment, remoteCmd, DEFAULT_TIMEOUT_MS)
+}
+
+export async function execSSHWithTimeout(deployment: SSHConfig, remoteCmd: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
   if (deployment.authMethod === 'password') {
-    return await execSSHWithPassword(deployment, remoteCmd)
+    return await execSSHWithPasswordTimeout(deployment, remoteCmd, timeoutMs)
   }
   const keyFlag = deployment.privateKeyPath ? `-i "${deployment.privateKeyPath}"` : ''
   const flags = `-p ${deployment.sshPort} -o StrictHostKeyChecking=no -o BatchMode=yes ${keyFlag}`.trim()
   const res = await withTimeout(
     os.execCommand(`ssh ${flags} ${deployment.username}@${deployment.host} "${wrapRemoteCmd(remoteCmd)}"`),
-    DEFAULT_TIMEOUT_MS,
+    timeoutMs,
     'SSH Command'
   )
   return toResult(res)
+}
+
+export async function execSSH(deployment: SSHConfig, remoteCmd: string): Promise<ExecResult> {
+  return execSSHWithTimeout(deployment, remoteCmd, DEFAULT_TIMEOUT_MS)
 }
 
 // ── SCP execution ─────────────────────────────────────────
