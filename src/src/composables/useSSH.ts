@@ -9,7 +9,7 @@ export interface ExecResult {
 // ── Platform ──────────────────────────────────────────────
 
 // ── Execution Helpers ─────────────────────────────────────
-const DEFAULT_TIMEOUT_MS = 10000 // Reduced from 15s to 10s for faster failover
+const DEFAULT_TIMEOUT_MS = 15000
 const TOOL_TIMEOUT_MS = 2000    // Shorter timeout for local tool checks
 export const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 5 min — large JARs can be ~100 MB
 export const REMOTE_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000 // 5 min — large JARs can be ~100 MB

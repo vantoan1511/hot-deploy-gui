@@ -3,7 +3,7 @@ import { useControlsStore } from '@/stores/controls'
 import type { ControlConnection, DetectedService } from '@/types/deployment'
 import { isUrl, resolveRemotePath, serviceBaseName } from '@/utils/pathUtils'
 import { ref } from 'vue'
-import { execSCP, execSSH } from './useSSH'
+import { execSCP, execSSH, execSSHWithTimeout, UPLOAD_TIMEOUT_MS } from './useSSH'
 
 export const useControlRunner = () => {
   const sessionStore = useControlSessionStore()
@@ -208,7 +208,9 @@ export const useControlRunner = () => {
     const logPath = connection.logsPath
       ? resolveRemotePath(rootPath, `${connection.logsPath}/${logName}.log`)
       : `/tmp/${logName}.log`
-    const fullCmd = `cd "${workDir}" && nohup ${cmd} > "${logPath}" 2>&1 &`
+    const envExport = `export FP_APP_SIGN={SHA-256}LpGdOnyWrGRHROqe0hygkDu7Ztq/YfEOZLJCfEAU0RqN3HU+3eZZQNwLWLU1TxWmCsHxIEgyv+B5VDwkrNDGqDTd8rf/Jt3b4xmCkjmJmGxsJHf93X8jEmirpAvJWEqSN9GUovD8bJQewZdXAPzoImXfwaSvas+ED/r/t/zN2dLo2PCl35N9Zni5rMZXvVQ0dxoWi5iOtS5X/nCLRviXB10azMAz6lvlNidoqPtigXTtwOw2t0I7kuIje3Ay7Yw34N/3FNcXMTcLmLd0Cf7nOo7F7rOdfZl40gdpt9gDYBAKLbxI7oYU2HAW6u9KSV7mXHc43/PIzlBJBY24FmxIiYcusTuGyHwu1U9W3QSbJ+1+Hv2t0OSnF9Vu5+uynJPk8UXvkEowgfLGuwXQIiJKdve1tfNUCXYdOyBWymwU9GaAWFzs6arx+Vgu/jtx1SEJt4SiTvC+CnXgnUDepxK09l0Kf3MvWJxbn/uzPsFn7mK4fpA9RTEipF98duoQCQdZyhX4HFpNggS7Cw2B28yucIHRq7KAvxG961VNQvJEvXH6OKoVo9Kil8C70vOTckdlDgW0bFzcpH4nenJCnPf+1wOHAYzHS8oXLq7iPccNvhNr1PgzU42Z8ZYMYX1RnMZyHBjUiVckK25Fjs9Gc515z2ySsgV+mF8s+mG889RvIAU=`
+    const stopCmd = `pkill -f "${service.path}"`
+    const fullCmd = `${stopCmd} && cd "${workDir}" && ${envExport} && nohup ${cmd} > "${logPath}" 2>&1 &`
 
     console.log(`[restart] ${service.name}`, { cmd, workDir, logPath, fullCmd, cmdSource: override?.startCommand ? 'override' : service.detectedStartCommand ? 'detected' : 'fallback' })
 
@@ -275,11 +277,11 @@ export const useControlRunner = () => {
       if (isUrl(pkgPath)) {
         deployStatus.value.currentStep = `Downloading (Remote) ${filename}...`
         const wgetCmd = `wget -q --no-check-certificate -O "${tmpPath}" "${pkgPath}"`
-        const wgetRes = await execSSH(control, wgetCmd)
+        const wgetRes = await execSSHWithTimeout(control, wgetCmd, UPLOAD_TIMEOUT_MS)
         deployStatus.value.logs.push(`[WGET] ${wgetRes.output || 'Download complete'}`)
         if (wgetRes.exitCode !== 0) throw new Error(`Fetch failed: ${wgetRes.output}`)
       } else {
-        const scpRes = await execSCP(control, pkgPath, tmpPath)
+        const scpRes = await execSCP(control, pkgPath, tmpPath, UPLOAD_TIMEOUT_MS)
         deployStatus.value.logs.push(`[TRANSFER] ${scpRes.output || 'Upload complete'}`)
         if (scpRes.exitCode !== 0) throw new Error(`Transfer failed: ${scpRes.output}`)
       }
@@ -298,13 +300,17 @@ export const useControlRunner = () => {
       deployStatus.value.logs.push(`[FINALIZE] Moved ${tmpPath} -> ${targetPath}`)
 
       // 4. Pre-commands
+      const appSign = `{SHA-256}LpGdOnyWrGRHROqe0hygkDu7Ztq/YfEOZLJCfEAU0RqN3HU+3eZZQNwLWLU1TxWmCsHxIEgyv+B5VDwkrNDGqDTd8rf/Jt3b4xmCkjmJmGxsJHf93X8jEmirpAvJWEqSN9GUovD8bJQewZdXAPzoImXfwaSvas+ED/r/t/zN2dLo2PCl35N9Zni5rMZXvVQ0dxoWi5iOtS5X/nCLRviXB10azMAz6lvlNidoqPtigXTtwOw2t0I7kuIje3Ay7Yw34N/3FNcXMTcLmLd0Cf7nOo7F7rOdfZl40gdpt9gDYBAKLbxI7oYU2HAW6u9KSV7mXHc43/PIzlBJBY24FmxIiYcusTuGyHwu1U9W3QSbJ+1+Hv2t0OSnF9Vu5+uynJPk8UXvkEowgfLGuwXQIiJKdve1tfNUCXYdOyBWymwU9GaAWFzs6arx+Vgu/jtx1SEJt4SiTvC+CnXgnUDepxK09l0Kf3MvWJxbn/uzPsFn7mK4fpA9RTEipF98duoQCQdZyhX4HFpNggS7Cw2B28yucIHRq7KAvxG961VNQvJEvXH6OKoVo9Kil8C70vOTckdlDgW0bFzcpH4nenJCnPf+1wOHAYzHS8oXLq7iPccNvhNr1PgzU42Z8ZYMYX1RnMZyHBjUiVckK25Fjs9Gc515z2ySsgV+mF8s+mG889RvIAU=`
+      const envCmds = `export JAVA_HOME=$(dirname $(dirname $(which java))); export PATH="$JAVA_HOME/bin:$PATH"; export FP_APP_SIGN=${appSign}; `
+
       let preSuccess = true
       if (control.preCommands?.length) {
         deployStatus.value.phase = 'pre-commands'
+        // Export java path
         for (const cmd of control.preCommands) {
           if (!cmd.trim()) continue
           deployStatus.value.currentStep = `Running pre-command: ${cmd}`
-          const res = await execSSH(control, cmd)
+          const res = await execSSHWithTimeout(control, `cd "${control.rootDeploymentPath}"; ${envCmds}${cmd}`, 60000)
           deployStatus.value.logs.push(`[PRE] ${cmd} -> Exit ${res.exitCode}\n${res.output}`)
           if (res.exitCode !== 0) {
             preSuccess = false
@@ -319,7 +325,7 @@ export const useControlRunner = () => {
         for (const cmd of control.postCommands) {
           if (!cmd.trim()) continue
           deployStatus.value.currentStep = `Running post-command: ${cmd}`
-          const res = await execSSH(control, cmd)
+          const res = await execSSH(control, `cd "${control.rootDeploymentPath}"; ${envCmds}${cmd}`)
           deployStatus.value.logs.push(`[POST] ${cmd} -> Exit ${res.exitCode}\n${res.output}`)
           if (res.exitCode !== 0) break
         }
